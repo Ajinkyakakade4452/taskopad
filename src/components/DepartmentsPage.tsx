@@ -45,7 +45,7 @@ export default function DepartmentsPage({ theme, users }: DepartmentsPageProps) 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/10 pb-5 select-none">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Departments</h1>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Department Management</h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">Manage company departments</p>
         </div>
         <div className="flex items-center gap-3">
