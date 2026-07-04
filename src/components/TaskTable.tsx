@@ -1,0 +1,434 @@
+import { useState } from 'react';
+import { Check, CheckCircle2, Circle, Clock, Flame, Star, AlertCircle, Send } from 'lucide-react';
+import { Task, Priority, TaskStatus } from '../types';
+
+interface TaskTableProps {
+  theme: 'dark' | 'light';
+  tasks: Task[];
+  onToggleStatus: (taskId: string) => void;
+  onAddTaskClick: () => void;
+  onSubmitDraft?: (taskId: string) => void;
+  onSelectTask?: (task: Task) => void;
+  onUpdateTaskStatus?: (taskId: string, status: TaskStatus) => void;
+}
+
+export default function TaskTable({ 
+  theme, 
+  tasks, 
+  onToggleStatus, 
+  onAddTaskClick, 
+  onSubmitDraft,
+  onSelectTask,
+  onUpdateTaskStatus
+}: TaskTableProps) {
+  const [activeGroupTab, setActiveGroupTab] = useState<'today' | 'overdue' | 'drafts'>('today');
+
+  // Get today's date in YYYY-MM-DD format
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+  const today = getTodayDate();
+
+  const allTasks = tasks;
+
+  const todayTasks = allTasks.filter(t => !t.isDraft && t.dueDate >= today);
+  const overdueTasks = allTasks.filter(t => !t.isDraft && t.dueDate < today);
+  const draftTasks = allTasks.filter(t => t.isDraft);
+
+  const displayedTasks = activeGroupTab === 'today'
+    ? todayTasks
+    : activeGroupTab === 'overdue'
+    ? overdueTasks
+    : draftTasks;
+
+  // Helper for initials
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .substring(0, 2)
+      .toUpperCase();
+  };
+
+  const getAvatarBgColor = (initials: string) => {
+    const colors = [
+      'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+      'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+      'bg-amber-500/10 text-amber-400 border-amber-500/20',
+      'bg-rose-500/10 text-rose-400 border-rose-500/20',
+      'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    ];
+    let sum = 0;
+    for (let i = 0; i < initials.length; i++) sum += initials.charCodeAt(i);
+    return colors[sum % colors.length];
+  };
+
+  // Format date helper: "2026-07-01" to "1 Jul 2026"
+  const formatDateFriendly = (dateStr: string) => {
+    try {
+      const parts = dateStr.split('-');
+      if (parts.length !== 3) return dateStr;
+      const day = parseInt(parts[2], 10);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthIdx = parseInt(parts[1], 10) - 1;
+      return `${day} ${months[monthIdx]} ${parts[0]}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
+  return (
+    <div
+      id="task-table-card"
+      className={`rounded-2xl p-6 transition-all duration-300 shadow-lg border ${
+        theme === 'dark'
+          ? 'bg-[#141C38] border-slate-800 text-slate-200'
+          : 'bg-white border-slate-100 text-slate-800'
+      }`}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div>
+          <h3 className="font-semibold text-lg tracking-tight">My Tasks Table</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Interactive queue of active and completed tasks</p>
+        </div>
+        <button
+          onClick={onAddTaskClick}
+          className="self-start sm:self-auto text-xs font-semibold px-4 py-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 transition cursor-pointer flex items-center gap-2"
+        >
+          <span>Create Task Queue</span>
+        </button>
+      </div>
+
+      {/* Grouping/Queue Segments */}
+      <div className="flex flex-wrap items-center gap-2 mb-6 border-b border-slate-800/10 pb-4 select-none">
+        <button
+          onClick={() => setActiveGroupTab('today')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeGroupTab === 'today'
+              ? theme === 'dark'
+                ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                : 'bg-cyan-500 text-white shadow-sm'
+              : theme === 'dark'
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <span>📅 Today & Future</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+            activeGroupTab === 'today'
+              ? theme === 'dark' ? 'bg-cyan-400/20 text-cyan-300' : 'bg-white/20 text-white'
+              : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+          }`}>
+            {todayTasks.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveGroupTab('overdue')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeGroupTab === 'overdue'
+              ? theme === 'dark'
+                ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                : 'bg-rose-500 text-white shadow-sm'
+              : theme === 'dark'
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <span>⚠️ Overdue Queue</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+            activeGroupTab === 'overdue'
+              ? theme === 'dark' ? 'bg-rose-400/20 text-rose-300' : 'bg-white/20 text-white'
+              : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+          }`}>
+            {overdueTasks.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveGroupTab('drafts')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeGroupTab === 'drafts'
+              ? theme === 'dark'
+                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                : 'bg-amber-500 text-white shadow-sm'
+              : theme === 'dark'
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <span>📝 Draft Tasks</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+            activeGroupTab === 'drafts'
+              ? theme === 'dark' ? 'bg-amber-400/20 text-amber-300' : 'bg-white/20 text-white'
+              : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+          }`}>
+            {draftTasks.length}
+          </span>
+        </button>
+      </div>
+
+      {/* Table Container */}
+      <div className="w-full overflow-x-auto custom-scrollbar rounded-xl border border-slate-800/10">
+        <table className="w-full min-w-[700px] border-collapse text-left text-xs">
+          <thead>
+            <tr className={`border-b ${theme === 'dark' ? 'bg-[#0D1631]/50 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
+              <th className="px-5 py-3.5 font-semibold text-slate-400 rounded-tl-xl">Task Name</th>
+              <th className="px-5 py-3.5 font-semibold text-slate-400">Project</th>
+              <th className="px-5 py-3.5 font-semibold text-slate-400">Due Date</th>
+              <th className="px-5 py-3.5 font-semibold text-slate-400">Assignee</th>
+              <th className="px-5 py-3.5 font-semibold text-slate-400">Priority</th>
+              <th className="px-5 py-3.5 font-semibold text-slate-400 rounded-tr-xl text-center">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/10">
+            {displayedTasks.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-5 py-12 text-center text-slate-400 select-none">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <CheckCircle2 className="w-8 h-8 text-slate-600 animate-pulse" />
+                    <p className="font-semibold text-xs text-slate-300">No tasks found in this queue segment</p>
+                    <p className="text-[10px] text-slate-500 font-medium">All clear! Relax or create a new live task</p>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              displayedTasks.map((task) => {
+              const initials = getInitials(task.assignTo);
+              const avatarClass = getAvatarBgColor(initials);
+              const isCompleted = task.status === 'Completed';
+
+              return (
+                <tr
+                  key={task.id}
+                  onClick={() => onSelectTask?.(task)}
+                  className={`group transition duration-150 cursor-pointer select-none ${
+                    isCompleted
+                      ? theme === 'dark'
+                        ? 'opacity-65 hover:bg-[#0D1631]/60'
+                        : 'opacity-65 hover:bg-slate-50/60'
+                      : theme === 'dark'
+                      ? 'hover:bg-[#0D1631]'
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  {/* Task Name Column */}
+                  <td className="px-5 py-4">
+                    <div className="flex items-start gap-3 max-w-[280px]">
+                      {/* Checkbox button to complete */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleStatus(task.id);
+                        }}
+                        className={`mt-0.5 w-4.5 h-4.5 rounded-full border flex items-center justify-center transition flex-shrink-0 cursor-pointer ${
+                          isCompleted
+                            ? 'bg-emerald-500 border-emerald-500 text-slate-950'
+                            : theme === 'dark'
+                            ? 'border-slate-600 hover:border-cyan-400 text-transparent'
+                            : 'border-slate-300 hover:border-cyan-400 text-transparent'
+                        }`}
+                      >
+                        <Check className="w-3 h-3 text-white font-black stroke-[3.5]" />
+                      </button>
+
+                      <div className="space-y-0.5">
+                        <p className={`font-semibold text-xs leading-normal transition cursor-pointer hover:text-cyan-400 hover:underline underline-offset-2 group-hover:text-cyan-400 ${isCompleted ? 'line-through text-slate-500' : ''}`}>
+                          {task.name}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Project Column */}
+                  <td className="px-5 py-4">
+                    <div className="flex flex-wrap gap-1 max-w-[180px]">
+                      {task.projects && task.projects.length > 0 ? (
+                        <>
+                          {task.projects.slice(0, 2).map((proj) => (
+                            <span
+                              key={proj}
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                theme === 'dark'
+                                  ? 'bg-cyan-950/30 text-cyan-400 border-cyan-800/30'
+                                  : 'bg-cyan-50 text-cyan-700 border-cyan-150'
+                              }`}
+                            >
+                              {proj}
+                            </span>
+                          ))}
+                          {task.projects.length > 2 && (
+                            <span
+                              className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${
+                                theme === 'dark'
+                                  ? 'bg-slate-800/50 text-slate-300 border-slate-700/50'
+                                  : 'bg-slate-100 text-slate-600 border-slate-200'
+                              }`}
+                            >
+                              +{task.projects.length - 2} more
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                            theme === 'dark'
+                              ? 'bg-slate-800/30 text-slate-400 border-slate-700/30'
+                              : 'bg-slate-50 text-slate-600 border-slate-150'
+                          }`}
+                        >
+                          {task.project || 'No Project'}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Due Date Column */}
+                  <td className="px-5 py-4 text-slate-400 font-medium font-mono">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-cyan-500" />
+                      <span>{formatDateFriendly(task.dueDate)}</span>
+                    </div>
+                  </td>
+
+                  {/* Assignee Column */}
+                  <td className="px-5 py-4">
+                    <div className="flex items-center gap-2">
+                      <div className="flex -space-x-2 overflow-hidden">
+                        {(task.assignees && task.assignees.length > 0 ? task.assignees : [task.assignTo]).slice(0, 3).map((assignee, idx) => {
+                          const initials = getInitials(assignee);
+                          const avatarClass = getAvatarBgColor(initials);
+                          return (
+                            <div
+                              key={assignee + idx}
+                              title={assignee}
+                              className={`w-7 h-7 rounded-full border-2 font-extrabold text-[9px] flex items-center justify-center select-none ${avatarClass} ${
+                                theme === 'dark' ? 'border-[#141C38]' : 'border-white'
+                              }`}
+                            >
+                              {initials}
+                            </div>
+                          );
+                        })}
+                        {task.assignees && task.assignees.length > 3 && (
+                          <div
+                            className={`w-7 h-7 rounded-full border-2 font-extrabold text-[9px] flex items-center justify-center select-none ${
+                              theme === 'dark'
+                                ? 'bg-slate-800 text-slate-300 border-[#141C38]'
+                                : 'bg-slate-100 text-slate-600 border-white'
+                            }`}
+                          >
+                            +{task.assignees.length - 3}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-left">
+                        <p className="font-semibold text-xs leading-none truncate max-w-[100px]">
+                          {task.assignees && task.assignees.length > 1
+                            ? `${task.assignees[0]} +${task.assignees.length - 1}`
+                            : task.assignTo}
+                        </p>
+                        <p className="text-[9px] text-slate-400 mt-0.5 font-mono">ID: T-1345</p>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Priority Column */}
+                  <td className="px-5 py-4">
+                    <span
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
+                        task.priority === 'Critical'
+                          ? 'bg-red-950/40 text-red-500 border border-red-900/30'
+                          : task.priority === 'High'
+                          ? 'bg-rose-500/15 text-rose-400'
+                          : task.priority === 'Medium'
+                          ? 'bg-yellow-500/15 text-yellow-400'
+                          : 'bg-emerald-500/15 text-emerald-400'
+                      }`}
+                    >
+                      {task.priority === 'Critical' ? (
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                      ) : task.priority === 'High' ? (
+                        <Flame className="w-3 h-3 text-rose-400" />
+                      ) : (
+                        <Star className="w-3 h-3 text-current" />
+                      )}
+                      <span>{task.priority}</span>
+                    </span>
+                  </td>
+
+                  {/* Status Column */}
+                  <td className="px-5 py-4 text-center">
+                    {task.isDraft ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSubmitDraft?.(task.id);
+                        }}
+                        className="text-[9px] font-extrabold uppercase tracking-widest px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/35 border border-emerald-500/30 transition transform active:scale-95 flex items-center gap-1 mx-auto cursor-pointer"
+                        title="Submit task to active queue"
+                      >
+                        <Send className="w-2.5 h-2.5" />
+                        <span>Submit</span>
+                      </button>
+                    ) : (
+                      <select
+                        value={task.status}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          if (onUpdateTaskStatus) {
+                            onUpdateTaskStatus(task.id, e.target.value as TaskStatus);
+                          } else {
+                            onToggleStatus(task.id);
+                          }
+                        }}
+                        className={`text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 rounded-full cursor-pointer transition outline-none appearance-none border text-center ${
+                          task.status === 'Completed'
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
+                            : task.status === 'In Progress'
+                            ? 'bg-blue-500/15 text-blue-400 border-blue-500/20'
+                            : task.status === 'Under Review'
+                            ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20'
+                            : task.status === 'Rejected'
+                            ? 'bg-red-500/15 text-red-400 border-red-500/20'
+                            : task.status === 'Incomplete'
+                            ? 'bg-purple-500/15 text-purple-400 border-purple-500/20'
+                            : 'bg-yellow-500/15 text-yellow-500 border-yellow-500/20'
+                        }`}
+                      >
+                        <option value="Pending" className={theme === 'dark' ? 'bg-[#141C38] text-slate-200' : 'bg-white text-slate-800'}>Pending</option>
+                        <option value="Completed" className={theme === 'dark' ? 'bg-[#141C38] text-slate-200' : 'bg-white text-slate-800'}>Completed</option>
+                        <option value="In Progress" className={theme === 'dark' ? 'bg-[#141C38] text-slate-200' : 'bg-white text-slate-800'}>In Progress</option>
+                        <option value="Under Review" className={theme === 'dark' ? 'bg-[#141C38] text-slate-200' : 'bg-white text-slate-800'}>Under Review</option>
+                        <option value="Rejected" className={theme === 'dark' ? 'bg-[#141C38] text-slate-200' : 'bg-white text-slate-800'}>Rejected</option>
+                        <option value="Incomplete" className={theme === 'dark' ? 'bg-[#141C38] text-slate-200' : 'bg-white text-slate-800'}>Incomplete</option>
+                      </select>
+                    )}
+                  </td>
+                </tr>
+              );
+            }))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Table Stats Footer */}
+      <div className="mt-4 flex flex-col sm:flex-row items-center justify-between text-[11px] text-slate-400 font-medium">
+        <span>Showing {displayedTasks.length} tasks in this segment ({allTasks.length} total across all)</span>
+        <div className="flex items-center gap-3 mt-2 sm:mt-0">
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+            <span>{displayedTasks.filter(t => t.status !== 'Completed').length} Uncompleted</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>{displayedTasks.filter(t => t.status === 'Completed').length} Completed</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}

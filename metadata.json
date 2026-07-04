@@ -1,0 +1,6 @@
+{
+  "name": "Edigital TaskPad",
+  "description": "A modern, professional task management software dashboard featuring clean SaaS aesthetics, dynamic charts, task creation, and personal organization tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
