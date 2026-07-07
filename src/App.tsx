@@ -9,6 +9,7 @@ import TaskTable from './components/TaskTable';
 import ProjectsSection from './components/ProjectsSection';
 import DiscussionCard from './components/DiscussionCard';
 import TaskModal from './components/TaskModal';
+import BulkTaskModal from './components/BulkTaskModal';
 import TaskDetailsPanel from './components/TaskDetailsPanel';
 import LoginPage from './components/LoginPage';
 import UserDashboard from './components/UserDashboard';
@@ -39,6 +40,7 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
+  const [isBulkTaskModalOpen, setIsBulkTaskModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<string>('Dashboard');
 
@@ -235,6 +237,66 @@ export default function App() {
       setTasks(prev => [taskWithId, ...prev]);
     }
     setIsAddTaskModalOpen(false);
+  };
+
+  // Bulk task save handler
+  const handleSaveMultipleTasks = async (newTasksData: Omit<Task, 'id'>[]) => {
+    const tasksToSend: Task[] = newTasksData.map((taskData, idx) => ({
+      ...(taskData as any),
+      id: `task-${Date.now()}-${idx}-${Math.random()}`,
+    }));
+
+    try {
+      const res = await fetch(`${API_BASE}/tasks/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tasksToSend),
+      });
+
+      if (res.ok) {
+        const saved: Task[] = await res.json();
+        setTasks(prev => [...saved, ...prev]);
+        addNotification({
+          type: 'success',
+          title: 'Bulk Tasks Added',
+          message: `${saved.length} tasks added successfully`,
+        });
+        return;
+      }
+    } catch {
+      // fall back below
+    }
+
+    // Fallback: if bulk API fails, still try sequential create (older behavior)
+    const savedTasks: Task[] = [];
+    for (const taskData of newTasksData) {
+      const taskWithId: Task = {
+        ...taskData,
+        id: `task-${Date.now()}-${Math.random()}`,
+      };
+      try {
+        const res = await fetch(`${API_BASE}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(taskWithId),
+        });
+        if (res.ok) {
+          const saved: Task = await res.json();
+          savedTasks.push(saved);
+        } else {
+          savedTasks.push(taskWithId);
+        }
+      } catch {
+        savedTasks.push(taskWithId);
+      }
+    }
+
+    setTasks(prev => [...savedTasks, ...prev]);
+    addNotification({
+      type: 'success',
+      title: 'Bulk Tasks Added',
+      message: `${savedTasks.length} tasks added successfully`,
+    });
   };
 
   const handleSubmitDraft = async (taskId: string) => {

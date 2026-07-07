@@ -189,7 +189,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
     if (!newCommentText.trim()) return;
     const newComment = {
       id: `com-${Date.now()}`,
-      author: 'Krishna Lokhande',
+      // Use current assignee as a reasonable proxy for the active commenter in this UI
+      author: (assignTo || users?.[0]?.name || 'Unknown'),
       text: newCommentText.trim(),
       date: new Date().toLocaleString()
     };

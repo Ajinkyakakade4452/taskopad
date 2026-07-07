@@ -145,6 +145,25 @@ public class TaskController {
         return taskRepository.save(task);
     }
 
+    @PostMapping("/bulk")
+    public List<Task> createBulkTasks(@RequestBody List<Task> tasks) {
+        if (tasks == null) {
+            return List.of();
+        }
+
+        List<Task> prepared = new ArrayList<>();
+        for (Task task : tasks) {
+            if (task == null) continue;
+
+            if (task.getId() == null || task.getId().isEmpty()) {
+                task.setId("task-" + System.currentTimeMillis() + "-" + prepared.size());
+            }
+            prepared.add(task);
+        }
+
+        return taskRepository.saveAll(prepared);
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<Task> updateTask(@PathVariable String id, @RequestBody Task taskDetails) {
         Optional<Task> optionalTask = taskRepository.findById(id);
