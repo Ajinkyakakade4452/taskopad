@@ -50,6 +50,7 @@ import UsersPage from './UsersPage';
 
 
 
+
 interface LoggedInUser {
   id: string;
   name: string;
@@ -158,8 +159,18 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   const [activeTab, setActiveTab] = useState<'today' | 'overdue' | 'draft'>('today');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Filter UI state (real working filters)
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<TaskStatus | 'Any'>('Any');
+  const [filterPriority, setFilterPriority] = useState<
+    'Critical' | 'High' | 'Medium' | 'Low' | 'Any'
+  >('Any');
+  const [filterProject, setFilterProject] = useState<string>('Any');
+  const [filterDueSegment, setFilterDueSegment] = useState<'Any' | 'TodayFuture' | 'Overdue'>('Any');
+
   const [activeView, setActiveView] = useState<string>('Dashboard');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
+
 
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -255,23 +266,158 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
 
   const activeList = (() => {
     let list =
-      activeTab === 'today' ? todayTasks : activeTab === 'overdue' ? overdueTasks : draftTasks;
+      activeTab === 'today'
+        ? todayTasks
+        : activeTab === 'overdue'
+          ? overdueTasks
+          : draftTasks;
 
+    // Search filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter((t) => t.name?.toLowerCase().includes(q) || t.project?.toLowerCase().includes(q));
     }
 
+    // Status filter
+    if (filterStatus !== 'Any') {
+      list = list.filter((t) => t.status === filterStatus);
+    }
+
+    // Priority filter
+    if (filterPriority !== 'Any') {
+      list = list.filter((t) => t.priority === filterPriority);
+    }
+
+    // Project filter
+    if (filterProject !== 'Any') {
+      list = list.filter((t) => (t.project || '').toLowerCase() === filterProject.toLowerCase());
+    }
+
+    // Due segment filter (independent from activeTab)
+    if (filterDueSegment !== 'Any') {
+      if (filterDueSegment === 'Overdue') {
+        list = list.filter((t) => isOverdue(t.dueDate) && t.status !== 'Completed');
+      } else if (filterDueSegment === 'TodayFuture') {
+        list = list.filter((t) => !isOverdue(t.dueDate) && t.status !== 'Completed');
+      }
+    }
+
     return list;
   })();
+
 
   const completedCount = tasks.filter((t) => t.status === 'Completed').length;
   const pendingCount = tasks.filter((t) => t.status !== 'Completed').length;
 
   const renderTasksView = () => (
     <>
+      {/* Filter Drawer */}
+      {isFilterOpen && (
+        <div
+          className="fixed inset-0 z-[60]"
+          onClick={() => setIsFilterOpen(false)}
+        >
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" />
+          <div
+            className="absolute right-0 top-0 h-full w-full max-w-md bg-[#0A1128] border-l border-slate-700 shadow-2xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800/50">
+              <div>
+                <p className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400">Advanced Filters</p>
+                <p className="text-xs text-slate-400">Refine your task list</p>
+              </div>
+              <button
+                onClick={() => setIsFilterOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
+              <div className="space-y-2">
+                <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Status</p>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as TaskStatus | 'Any')}
+                  className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
+                >
+                  <option value="Any">Any</option>
+                  {(Object.keys(statusConfig) as TaskStatus[]).map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Priority</p>
+                <select
+                  value={filterPriority}
+                  onChange={(e) => setFilterPriority(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
+                >
+                  <option value="Any">Any</option>
+                  {(['Critical', 'High', 'Medium', 'Low'] as const).map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Project</p>
+                <select
+                  value={filterProject}
+                  onChange={(e) => setFilterProject(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
+                >
+                  <option value="Any">Any</option>
+                  {Array.from(new Set(tasks.map((t) => t.project).filter(Boolean))).map((p) => (
+                    <option key={p as string} value={p as string}>{p as string}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Due segment</p>
+                <select
+                  value={filterDueSegment}
+                  onChange={(e) => setFilterDueSegment(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
+                >
+                  <option value="Any">Any</option>
+                  <option value="TodayFuture">Today & Future</option>
+                  <option value="Overdue">Overdue</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-slate-800/50 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setFilterStatus('Any');
+                  setFilterPriority('Any');
+                  setFilterProject('Any');
+                  setFilterDueSegment('Any');
+                }}
+                className="flex-1 px-3 py-2 text-xs font-bold rounded-xl border border-slate-700 bg-slate-800/30 text-slate-300 hover:bg-slate-800/50 transition"
+              >
+                Clear Filters
+              </button>
+              <button
+                onClick={() => setIsFilterOpen(false)}
+                className="flex-[1.2] px-3 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 hover:from-cyan-400 hover:to-blue-500 transition"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Task header/search */}
       <header className="bg-[#060D1F]/80 backdrop-blur border-b border-slate-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
+
         <div className="flex items-center gap-3">
           <h1 className="text-base font-bold text-white">Tasks</h1>
           <ChevronDown className="w-4 h-4 text-slate-500" />
@@ -288,9 +434,13 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
             />
           </div>
 
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700/50 text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition">
+          <button
+            onClick={() => setIsFilterOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700/50 text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition"
+          >
             <Filter className="w-3 h-3" /> Filter
           </button>
+
 
           <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-xs font-bold shadow-md shadow-cyan-500/20 hover:from-cyan-400 hover:to-blue-500 transition">
             <Plus className="w-3 h-3" /> Add Task
@@ -939,10 +1089,11 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
         ) : activeView === 'Reports' ? (
           <ReportsPage theme="dark" tasks={tasks} users={users as any} />
         ) : activeView === 'Users' ? (
-          <UsersPage />
+          <UsersPage user={user} />
         ) : activeView === 'Settings' ? (
           <SettingsPage theme="dark" user={user} onThemeToggle={() => {}} />
         ) : activeView === "What's New" ? (
+
           <WhatsNewPage theme="dark" />
         ) : (
 

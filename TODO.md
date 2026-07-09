@@ -1,7 +1,14 @@
-# TODO - User panel should be read-only
+# TODO
 
-- [ ] Inspect UsersPage and UserDashboard files.
-- [ ] Update `src/components/UsersPage.tsx` to remove/hide Add/Edit/Delete UI and modal (read-only list only).
-- [ ] (Optional) Verify `src/components/UserDashboard.tsx` still navigates correctly to Users page.
-- [ ] Run frontend to confirm Users page shows only read.
+## Admin user management (Users page)
+- [ ] Update `src/components/UsersPage.tsx` to add admin-only UI for add/edit/delete users
+- [ ] Wire API calls to backend endpoints:
+  - [ ] GET `/api/auth/users`
+  - [ ] POST `/api/auth/users`
+  - [ ] PUT `/api/auth/users/{id}`
+  - [ ] DELETE `/api/auth/users/{id}`
+- [ ] Pass logged-in user prop from `src/components/UserDashboard.tsx` into `UsersPage`
+- [x] Hide/disable add/edit/delete for non-admin users (UI)
+- [ ] Backend role-based authorization (authorization enforcement)
+- [ ] Test: admin add/edit/delete + non-admin sees no actions
 

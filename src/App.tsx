@@ -377,7 +377,7 @@ export default function App() {
           {(() => {
             switch (activeView) {
               case 'Users':
-                return <UsersPage />;
+                return <UsersPage user={loggedInUser} />;
               
               case 'Dashboard':
                 return (
