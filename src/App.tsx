@@ -545,7 +545,20 @@ export default function App() {
 
               case 'Settings':
                 return loggedInUser ? (
-                  <SettingsPage theme={theme} user={{ id: loggedInUser.id, name: loggedInUser.name, email: loggedInUser.email }} onThemeToggle={handleThemeToggle} />
+                  <SettingsPage
+                    theme={theme}
+                    user={{ id: loggedInUser.id, name: loggedInUser.name, email: loggedInUser.email }}
+                    onThemeToggle={handleThemeToggle}
+                    onUserUpdated={(updated) => {
+                      const next = {
+                        ...loggedInUser,
+                        name: updated.name,
+                        email: updated.email,
+                      };
+                      setLoggedInUser(next);
+                      sessionStorage.setItem('taskpad_user', JSON.stringify(next));
+                    }}
+                  />
                 ) : (
                   <SettingsPage theme={theme} user={{ id: '', name: '', email: '' }} onThemeToggle={handleThemeToggle} />
                 );

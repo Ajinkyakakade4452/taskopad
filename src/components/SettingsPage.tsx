@@ -12,9 +12,10 @@ interface SettingsPageProps {
   theme: 'dark' | 'light';
   user?: LoggedInUser;
   onThemeToggle: () => void;
+  onUserUpdated?: (user: { id: string; name: string; email: string }) => void;
 }
 
-export default function SettingsPage({ theme, user, onThemeToggle }: SettingsPageProps) {
+export default function SettingsPage({ theme, user, onThemeToggle, onUserUpdated }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'appearance' | 'security' | 'backup' | 'help'>('profile');
   const [saved, setSaved] = useState(false);
   
@@ -42,8 +43,14 @@ export default function SettingsPage({ theme, user, onThemeToggle }: SettingsPag
   const handleSave = async () => {
     const API_BASE = '/api/auth';
     setSaved(false);
-    try {
+      try {
       if (!user) return;
+
+      const updatedUser = {
+        id: user.id,
+        name: settings.name,
+        email: settings.email,
+      };
       const res = await fetch(`${API_BASE}/users/${user.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -57,6 +64,8 @@ export default function SettingsPage({ theme, user, onThemeToggle }: SettingsPag
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.message || 'Failed to save profile');
       }
+
+      if (onUserUpdated) onUserUpdated(updatedUser);
 
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
