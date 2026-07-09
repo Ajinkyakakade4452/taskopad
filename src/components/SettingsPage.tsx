@@ -1,30 +1,70 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
 import { User, Bell, Palette, Shield, Database, HelpCircle, Save, CheckCircle2 } from 'lucide-react';
+
+interface LoggedInUser {
+  id: string;
+  name: string;
+  email: string;
+}
 
 interface SettingsPageProps {
   theme: 'dark' | 'light';
+  user?: LoggedInUser;
   onThemeToggle: () => void;
 }
 
-export default function SettingsPage({ theme, onThemeToggle }: SettingsPageProps) {
+export default function SettingsPage({ theme, user, onThemeToggle }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'appearance' | 'security' | 'backup' | 'help'>('profile');
   const [saved, setSaved] = useState(false);
   
   const [settings, setSettings] = useState({
-    name: 'Krishna Lokhande',
-    email: 'krishna@edigital.com',
+    name: '',
+    email: '',
     notifications: {
       email: true,
       push: true,
-      desktop: false
+      desktop: false,
     },
     language: 'English',
-    timezone: 'Asia/Kolkata'
+    timezone: 'Asia/Kolkata',
   });
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  useEffect(() => {
+    if (!user) return;
+    setSettings((prev: any) => ({
+      ...prev,
+      name: user.name || '',
+      email: user.email || '',
+    }));
+  }, [user?.id]);
+
+  const handleSave = async () => {
+    const API_BASE = '/api/auth';
+    setSaved(false);
+    try {
+      if (!user) return;
+      const res = await fetch(`${API_BASE}/users/${user.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: settings.name,
+          email: settings.email,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || 'Failed to save profile');
+      }
+
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      // Keep UI simple; existing pages don't have global toast
+      setSaved(false);
+      alert('Failed to update profile');
+    }
   };
 
   const tabs = [
@@ -89,10 +129,12 @@ export default function SettingsPage({ theme, onThemeToggle }: SettingsPageProps
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs text-slate-400">Full Name</label>
+                  
                   <input
                     type="text"
                     value={settings.name}
-                    onChange={(e) => setSettings({ ...settings, name: e.target.value })}
+                    onChange={(e: any) =>
+                      setSettings({ ...settings, name: (e.target as HTMLInputElement).value })}
                     className={`w-full px-4 py-2 rounded-xl text-sm border outline-none focus:ring-2 focus:ring-cyan-400 ${
                       theme === 'dark' ? 'bg-[#0D1631] border-slate-700 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-700'
                     }`}
@@ -103,7 +145,8 @@ export default function SettingsPage({ theme, onThemeToggle }: SettingsPageProps
                   <input
                     type="email"
                     value={settings.email}
-                    onChange={(e) => setSettings({ ...settings, email: e.target.value })}
+                    onChange={(e: any) =>
+                      setSettings({ ...settings, email: (e.target as HTMLInputElement).value })}
                     className={`w-full px-4 py-2 rounded-xl text-sm border outline-none focus:ring-2 focus:ring-cyan-400 ${
                       theme === 'dark' ? 'bg-[#0D1631] border-slate-700 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-700'
                     }`}

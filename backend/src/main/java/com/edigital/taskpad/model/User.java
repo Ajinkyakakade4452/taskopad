@@ -1,8 +1,15 @@
 package com.edigital.taskpad.model;
 
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "users")
 public class User {
+    @Id
     private String id;
     private String name;
+    
+    @Column(unique = true)
     private String email;
     private String password;
     private String role; // "admin" or "user"

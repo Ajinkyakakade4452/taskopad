@@ -1,6 +1,9 @@
 package com.edigital.taskpad.controller;
 
 import com.edigital.taskpad.model.User;
+import com.edigital.taskpad.repository.UserRepository;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,42 +17,45 @@ import java.util.UUID;
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    // In-memory user store (for simplicity; no DB table needed)
-    private static final List<User> USERS = new ArrayList<>();
+    @Autowired
+    private UserRepository userRepository;
 
-    static {
-        // Admin user - full access to enterprise dashboard
-        USERS.add(new User(
-            "usr-admin-1",
-            "Ajinkya Kakade",
-            "admin@edigitalknowledge.com",
-            "admin@123",
-            "admin",
-            "AK",
-            "#0ea5e9"
-        ));
+    @PostConstruct
+    public void init() {
+        if (userRepository.count() == 0) {
+            // Admin user
+            userRepository.save(new User(
+                "usr-admin-1",
+                "Ajinkya Kakade",
+                "admin@edigitalknowledge.com",
+                "admin@123",
+                "admin",
+                "AK",
+                "#0ea5e9"
+            ));
 
-        // User 1 - regular user, sees only their tasks
-        USERS.add(new User(
-            "usr-1",
-            "Krishna Lokhande",
-            "krishna@edigitalknowledge.com",
-            "user@123",
-            "user",
-            "KL",
-            "#8b5cf6"
-        ));
+            // User 1
+            userRepository.save(new User(
+                "usr-1",
+                "Krishna Lokhande",
+                "krishna@edigitalknowledge.com",
+                "user@123",
+                "user",
+                "KL",
+                "#8b5cf6"
+            ));
 
-        // User 2 - regular user, sees only their tasks
-        USERS.add(new User(
-            "usr-2",
-            "Alister Manikam",
-            "alister@edigitalknowledge.com",
-            "user@123",
-            "user",
-            "AM",
-            "#f59e0b"
-        ));
+            // User 2
+            userRepository.save(new User(
+                "usr-2",
+                "Alister Manikam",
+                "alister@edigitalknowledge.com",
+                "user@123",
+                "user",
+                "AM",
+                "#f59e0b"
+            ));
+        }
     }
 
     @PostMapping("/login")
@@ -63,12 +69,9 @@ public class AuthController {
             return ResponseEntity.badRequest().body(error);
         }
 
-        User matchedUser = USERS.stream()
-            .filter(u -> u.getEmail().equalsIgnoreCase(email) && u.getPassword().equals(password))
-            .findFirst()
-            .orElse(null);
+        User matchedUser = userRepository.findByEmailIgnoreCase(email).orElse(null);
 
-        if (matchedUser == null) {
+        if (matchedUser == null || !matchedUser.getPassword().equals(password)) {
             Map<String, String> error = new HashMap<>();
             error.put("message", "Invalid email or password");
             return ResponseEntity.status(401).body(error);
@@ -90,7 +93,8 @@ public class AuthController {
     @GetMapping("/users")
     public ResponseEntity<?> getUsers() {
         List<Map<String, Object>> result = new ArrayList<>();
-        for (User u : USERS) {
+        List<User> users = userRepository.findAll();
+        for (User u : users) {
             Map<String, Object> userMap = new HashMap<>();
             userMap.put("id", u.getId());
             userMap.put("name", u.getName());
@@ -118,8 +122,7 @@ public class AuthController {
         }
 
         // Check if email already exists
-        boolean emailExists = USERS.stream().anyMatch(u -> u.getEmail().equalsIgnoreCase(email));
-        if (emailExists) {
+        if (userRepository.existsByEmailIgnoreCase(email)) {
             Map<String, String> error = new HashMap<>();
             error.put("message", "User with this email already exists");
             return ResponseEntity.badRequest().body(error);
@@ -131,7 +134,7 @@ public class AuthController {
         if (nameParts.length >= 1) {
             initials += nameParts[0].charAt(0);
         }
-        if (nameParts.length >= 2) {
+        if (nameParts.length >= 2 && nameParts[1].length() > 0) {
             initials += nameParts[1].charAt(0);
         }
         initials = initials.toUpperCase();
@@ -152,7 +155,7 @@ public class AuthController {
             avatarColor
         );
 
-        USERS.add(newUser);
+        userRepository.save(newUser);
 
         Map<String, Object> response = new HashMap<>();
         response.put("id", newUser.getId());
@@ -167,7 +170,7 @@ public class AuthController {
 
     @PutMapping("/users/{id}")
     public ResponseEntity<?> updateUser(@PathVariable String id, @RequestBody Map<String, String> userData) {
-        User user = USERS.stream().filter(u -> u.getId().equals(id)).findFirst().orElse(null);
+        User user = userRepository.findById(id).orElse(null);
         if (user == null) {
             Map<String, String> error = new HashMap<>();
             error.put("message", "User not found");
@@ -182,7 +185,7 @@ public class AuthController {
             if (nameParts.length >= 1) {
                 initials += nameParts[0].charAt(0);
             }
-            if (nameParts.length >= 2) {
+            if (nameParts.length >= 2 && nameParts[1].length() > 0) {
                 initials += nameParts[1].charAt(0);
             }
             user.setInitials(initials.toUpperCase());
@@ -191,8 +194,9 @@ public class AuthController {
         if (userData.containsKey("email")) {
             // Check if email is already taken by another user
             String newEmail = userData.get("email");
-            boolean emailExists = USERS.stream().anyMatch(u -> !u.getId().equals(id) && u.getEmail().equalsIgnoreCase(newEmail));
-            if (emailExists) {
+            User existingUser = userRepository.findByEmailIgnoreCase(newEmail).orElse(null);
+            
+            if (existingUser != null && !existingUser.getId().equals(id)) {
                 Map<String, String> error = new HashMap<>();
                 error.put("message", "Email already in use by another user");
                 return ResponseEntity.badRequest().body(error);
@@ -211,6 +215,8 @@ public class AuthController {
         if (userData.containsKey("avatarColor")) {
             user.setAvatarColor(userData.get("avatarColor"));
         }
+        
+        userRepository.save(user);
 
         Map<String, Object> response = new HashMap<>();
         response.put("id", user.getId());
@@ -225,7 +231,7 @@ public class AuthController {
 
     @DeleteMapping("/users/{id}")
     public ResponseEntity<?> deleteUser(@PathVariable String id) {
-        User user = USERS.stream().filter(u -> u.getId().equals(id)).findFirst().orElse(null);
+        User user = userRepository.findById(id).orElse(null);
         if (user == null) {
             Map<String, String> error = new HashMap<>();
             error.put("message", "User not found");
@@ -233,14 +239,16 @@ public class AuthController {
         }
 
         // Don't allow deleting the only admin
-        long adminCount = USERS.stream().filter(u -> u.getRole().equals("admin")).count();
-        if (user.getRole().equals("admin") && adminCount <= 1) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "Cannot delete the only admin user");
-            return ResponseEntity.badRequest().body(error);
+        if (user.getRole().equals("admin")) {
+            long adminCount = userRepository.findAll().stream().filter(u -> "admin".equals(u.getRole())).count();
+            if (adminCount <= 1) {
+                Map<String, String> error = new HashMap<>();
+                error.put("message", "Cannot delete the only admin user");
+                return ResponseEntity.badRequest().body(error);
+            }
         }
 
-        USERS.remove(user);
+        userRepository.delete(user);
         return ResponseEntity.ok().build();
     }
 }

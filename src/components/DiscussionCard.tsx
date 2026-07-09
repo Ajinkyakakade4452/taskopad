@@ -1,73 +1,84 @@
-import React, { useState } from 'react';
-import { MessageSquare, Send, ThumbsUp, CalendarClock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { MessageSquare, Send, ThumbsUp, CalendarClock, Loader2 } from 'lucide-react';
 import { DiscussionMessage } from '../types';
 
 interface DiscussionCardProps {
   theme: 'dark' | 'light';
 }
 
-const mockDiscussions: DiscussionMessage[] = [
-  {
-    id: 'disc-1',
-    userName: 'Krishna Lokhande',
-    userInitials: 'KL',
-    avatarColor: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
-    date: '1 Jul 2026, 10:15 AM',
-    message: 'Can everyone review the design mockups for the Om Associates website? The high-priority batch ends today.',
-    category: 'General',
-  },
-  {
-    id: 'disc-2',
-    userName: 'Alister Manikam',
-    userInitials: 'AM',
-    avatarColor: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-    date: '1 Jul 2026, 09:30 AM',
-    message: 'Drafting the 5 stories for YouGo now. Let me know if we need a specific hashtag alignment.',
-    category: 'Task',
-  },
-  {
-    id: 'disc-3',
-    userName: 'Kriti Khandelwal',
-    userInitials: 'KK',
-    avatarColor: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
-    date: '30 Jun 2026, 05:45 PM',
-    message: 'Finished sending the evening lead batch. All spreadsheets are updated on Google Drive.',
-    category: 'Task',
-  },
-  {
-    id: 'disc-4',
-    userName: 'Aditya Kirat Karve',
-    userInitials: 'AK',
-    avatarColor: 'bg-red-500/20 text-red-400 border-red-500/30',
-    date: '30 Jun 2026, 02:20 PM',
-    message: 'Server migration for Net Access Internet is scheduled for this coming Saturday night to avoid customer downtime.',
-    category: 'General',
-  },
-];
+const API_BASE = '/api';
 
 export default function DiscussionCard({ theme }: DiscussionCardProps) {
   const [activeTab, setActiveTab] = useState<'General' | 'Task'>('General');
-  const [messages, setMessages] = useState<DiscussionMessage[]>(mockDiscussions);
+  const [messages, setMessages] = useState<DiscussionMessage[]>([]);
   const [newMsgText, setNewMsgText] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchDiscussions();
+  }, []);
+
+  const fetchDiscussions = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/discussions`);
+      if (res.ok) {
+        const data = await res.json();
+        // Sort by ID or date if needed. Assuming newer is at the end, we reverse it to show newest at top if needed.
+        // Actually, backend returns as stored. Let's just set it.
+        setMessages(data.reverse());
+      }
+    } catch (err) {
+      console.error('Failed to fetch discussions', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredMessages = messages.filter((m) => m.category === activeTab);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMsgText.trim()) return;
 
-    const newMessage: DiscussionMessage = {
-      id: `disc-${Date.now()}`,
-      userName: 'Krishna Lokhande',
-      userInitials: 'KL',
-      avatarColor: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
-      date: '1 Jul 2026, Just Now',
+    // Get current user details from sessionStorage if available
+    let userName = 'Unknown User';
+    let userInitials = 'UU';
+    let avatarColor = 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+
+    try {
+      const saved = sessionStorage.getItem('taskpad_user');
+      if (saved) {
+        const user = JSON.parse(saved);
+        userName = user.name;
+        userInitials = user.initials;
+        avatarColor = `bg-[${user.avatarColor}] text-white`; // Simplified for now
+      }
+    } catch {}
+
+    const newMessage = {
+      userName,
+      userInitials,
+      avatarColor,
+      date: new Date().toLocaleDateString('en-IN') + ', ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
       message: newMsgText,
       category: activeTab,
     };
 
-    setMessages([newMessage, ...messages]);
-    setNewMsgText('');
+    try {
+      const res = await fetch(`${API_BASE}/discussions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newMessage),
+      });
+
+      if (res.ok) {
+        const savedMsg = await res.json();
+        setMessages([savedMsg, ...messages]);
+        setNewMsgText('');
+      }
+    } catch (err) {
+      console.error('Failed to post discussion', err);
+    }
   };
 
   return (
@@ -109,7 +120,12 @@ export default function DiscussionCard({ theme }: DiscussionCardProps) {
 
         {/* Message feed */}
         <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
-          {filteredMessages.length > 0 ? (
+          {loading ? (
+            <div className="py-12 flex items-center justify-center text-xs text-slate-500">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              Loading discussions...
+            </div>
+          ) : filteredMessages.length > 0 ? (
             filteredMessages.map((msg) => (
               <div
                 key={msg.id}
@@ -123,7 +139,9 @@ export default function DiscussionCard({ theme }: DiscussionCardProps) {
                 <div className="flex items-center justify-between gap-2 border-b border-slate-800/10 pb-1.5">
                   <div className="flex items-center gap-2">
                     <div
-                      className={`w-6.5 h-6.5 rounded-lg border font-bold text-[9px] flex items-center justify-center select-none ${msg.avatarColor}`}
+                      className={`w-6.5 h-6.5 rounded-lg border font-bold text-[9px] flex items-center justify-center select-none ${
+                        msg.avatarColor && msg.avatarColor.includes('bg-[') ? 'bg-cyan-500 text-white' : msg.avatarColor
+                      }`}
                     >
                       {msg.userInitials}
                     </div>

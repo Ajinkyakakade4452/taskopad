@@ -1,2 +1,7 @@
-- [ ] Wire “What’s New” page into regular user view (UserDashboard.tsx)
-- [ ] Run frontend dev server and manually verify “What’s New” renders for user role
+# TODO
+
+- [ ] NotesPage: add Edit + Save for existing notes (title/content)
+- [ ] NotesPage: implement PUT /api/notes/{id} update flow and update UI state
+- [ ] NotesPage: add Cancel to discard edits
+- [ ] Test: add note, edit it, save, refresh and verify persisted changes
+

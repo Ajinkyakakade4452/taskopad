@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Clock, Plus, Calendar, Search, Filter, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Clock, Plus, Calendar, Search, Filter, CheckCircle2, Loader2 } from 'lucide-react';
 import { Task } from '../types';
 
 interface TimeEntry {
@@ -18,33 +18,34 @@ interface TimesheetPageProps {
   users: any[];
 }
 
+const API_BASE = '/api';
+
 export default function TimesheetPage({ theme, tasks, users }: TimesheetPageProps) {
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([
-    ...(users.length > 0 && tasks.length > 0 ? [
-      {
-        id: 'te-1',
-        task: tasks[0],
-        user: users[0].name,
-        date: selectedDate,
-        hours: 4,
-        description: 'Frontend development for dashboard',
-        status: 'billable'
-      },
-      {
-        id: 'te-2',
-        task: tasks[1] || tasks[0],
-        user: users[1]?.name || users[0].name,
-        date: selectedDate,
-        hours: 3.5,
-        description: 'Backend API integration',
-        status: 'billable'
+  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchTimeEntries();
+  }, []);
+
+  const fetchTimeEntries = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/timesheet`);
+      if (res.ok) {
+        const data = await res.json();
+        // The backend returns TimeEntry with `task` nested. Let's make sure it parses properly.
+        setTimeEntries(data.reverse());
       }
-    ] : [])
-  ]);
+    } catch (err) {
+      console.error('Failed to fetch time entries', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const [showAddEntry, setShowAddEntry] = useState(false);
-  const [newEntry, setNewEntry] = useState<Omit<TimeEntry, 'id'>>({
+  const [newEntry, setNewEntry] = useState<Partial<TimeEntry>>({
     task: tasks[0] || ({} as Task),
     user: users[0]?.name || '',
     date: selectedDate,
@@ -53,22 +54,40 @@ export default function TimesheetPage({ theme, tasks, users }: TimesheetPageProp
     status: 'billable'
   });
 
-  const handleAddEntry = () => {
-    if (!newEntry.task || newEntry.hours <= 0) return;
-    const entry: TimeEntry = {
-      ...newEntry,
-      id: `te-${Date.now()}`
+  const handleAddEntry = async () => {
+    if (!newEntry.task || !newEntry.hours || newEntry.hours <= 0) return;
+    
+    const entryData = {
+      task: newEntry.task,
+      user: newEntry.user,
+      date: newEntry.date || selectedDate,
+      hours: newEntry.hours,
+      description: newEntry.description,
+      status: newEntry.status
     };
-    setTimeEntries([entry, ...timeEntries]);
-    setShowAddEntry(false);
-    setNewEntry({
-      task: tasks[0] || ({} as Task),
-      user: users[0]?.name || '',
-      date: selectedDate,
-      hours: 0,
-      description: '',
-      status: 'billable'
-    });
+
+    try {
+      const res = await fetch(`${API_BASE}/timesheet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entryData)
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setTimeEntries([saved, ...timeEntries]);
+        setShowAddEntry(false);
+        setNewEntry({
+          task: tasks[0] || ({} as Task),
+          user: users[0]?.name || '',
+          date: selectedDate,
+          hours: 0,
+          description: '',
+          status: 'billable'
+        });
+      }
+    } catch (err) {
+      console.error('Failed to save time entry', err);
+    }
   };
 
   const totalHours = timeEntries.reduce((sum, e) => sum + e.hours, 0);
@@ -229,14 +248,18 @@ export default function TimesheetPage({ theme, tasks, users }: TimesheetPageProp
           <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Time Entries</span>
         </div>
         <div className="divide-y divide-slate-800/10">
-          {timeEntries.map(entry => (
+          {loading ? (
+             <div className="p-8 text-center flex items-center justify-center text-xs text-slate-500">
+               <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading...
+             </div>
+          ) : timeEntries.map(entry => (
             <div key={entry.id} className="p-4 flex items-center justify-between gap-4">
               <div className="flex items-center gap-4 min-w-0 flex-1">
                 <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-[#0D1631]' : 'bg-slate-50'}`}>
                   <Clock className="w-4 h-4 text-cyan-400" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold truncate">{entry.task?.name}</p>
+                  <p className="text-sm font-bold truncate">{entry.task?.name || 'Unknown Task'}</p>
                   <p className="text-xs text-slate-400">{entry.user} • {entry.description}</p>
                 </div>
               </div>
@@ -253,7 +276,7 @@ export default function TimesheetPage({ theme, tasks, users }: TimesheetPageProp
             </div>
           ))}
         </div>
-        {timeEntries.length === 0 && (
+        {!loading && timeEntries.length === 0 && (
           <div className="p-8 text-center text-xs text-slate-500">No time entries yet</div>
         )}
       </div>

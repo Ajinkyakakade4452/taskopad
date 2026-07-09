@@ -41,6 +41,8 @@ import NotesPage from './NotesPage';
 import ReportsPage from './ReportsPage';
 import SettingsPage from './SettingsPage';
 import WhatsNewPage from './WhatsNewPage';
+import UsersPage from './UsersPage';
+
 
 
 
@@ -936,11 +938,14 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
           <NotesPage theme="dark" />
         ) : activeView === 'Reports' ? (
           <ReportsPage theme="dark" tasks={tasks} users={users as any} />
+        ) : activeView === 'Users' ? (
+          <UsersPage />
         ) : activeView === 'Settings' ? (
-          <SettingsPage theme="dark" onThemeToggle={() => {}} />
+          <SettingsPage theme="dark" user={user} onThemeToggle={() => {}} />
         ) : activeView === "What's New" ? (
           <WhatsNewPage theme="dark" />
         ) : (
+
 
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
 

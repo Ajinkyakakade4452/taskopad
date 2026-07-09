@@ -544,7 +544,11 @@ export default function App() {
                 return <DepartmentsPage theme={theme} users={users} />;
 
               case 'Settings':
-                return <SettingsPage theme={theme} onThemeToggle={handleThemeToggle} />;
+                return loggedInUser ? (
+                  <SettingsPage theme={theme} user={{ id: loggedInUser.id, name: loggedInUser.name, email: loggedInUser.email }} onThemeToggle={handleThemeToggle} />
+                ) : (
+                  <SettingsPage theme={theme} user={{ id: '', name: '', email: '' }} onThemeToggle={handleThemeToggle} />
+                );
 
               case "What's New":
                 return <WhatsNewPage theme={theme} />;
