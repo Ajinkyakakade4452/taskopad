@@ -16,7 +16,9 @@ public class WebConfig implements WebMvcConfigurer {
                     "http://localhost:5173",
                     "http://127.0.0.1:3000",
                     "http://127.0.0.1:3001",
-                    "http://127.0.0.1:5173"
+                    "http://127.0.0.1:5173",
+                    "https://tasktracker.edigitalknowledge.in",
+                    "http://tasktracker.edigitalknowledge.in"
                 )
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH")
                 .allowedHeaders("*")
