@@ -7,6 +7,8 @@ import CalendarCard from './components/CalendarCard';
 import TeamIncomplete from './components/TeamIncomplete';
 import TaskTable from './components/TaskTable';
 import ProjectsSection from './components/ProjectsSection';
+import AdminProjectsPage from './components/AdminProjectsPage';
+
 import DiscussionCard from './components/DiscussionCard';
 import TaskModal from './components/TaskModal';
 import BulkTaskModal from './components/BulkTaskModal';
@@ -527,7 +529,7 @@ export default function App() {
                   </div>
                 );
 
-              case 'Projects':
+case 'Projects':
                 return (
                   <div className="space-y-8">
                     {/* Projects View Header */}
@@ -537,13 +539,14 @@ export default function App() {
                           Projects
                         </h1>
                         <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                          Manage all your projects
+                          Manage projects (admin)
                         </p>
                       </div>
                     </div>
-                    <ProjectsSection theme={theme} tasks={tasks} onProjectSelect={() => {}} selectedProject={null} />
+                    <AdminProjectsPage />
                   </div>
                 );
+
 
               case 'Discussion':
                 return (
