@@ -15,7 +15,8 @@ import BulkTaskModal from './components/BulkTaskModal';
 import TaskDetailsPanel from './components/TaskDetailsPanel';
 import LoginPage from './components/LoginPage';
 import UserDashboard from './components/UserDashboard';
-import Notifications, { Notification } from './components/Notification';
+import Notifications, { Notification as UiNotification } from './components/Notification';
+
 import UsersPage from './components/UsersPage';
 import DocumentsPage from './components/DocumentsPage';
 import TimesheetPage from './components/TimesheetPage';
@@ -69,19 +70,25 @@ export default function App() {
   const [selectedTaskForDetails, setSelectedTaskForDetails] = useState<Task | null>(null);
   const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(false);
 
-  // Notifications
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  // Notifications (UI)
+  const [notifications, setNotifications] = useState<UiNotification[]>([]);
 
-  const addNotification = (notification: Omit<Notification, 'id'>) => {
-    setNotifications((prev) => [
+
+
+  const addNotification = (notification: Omit<UiNotification, 'id'>) => {
+    setNotifications((prev: UiNotification[]) => [
+
       ...prev,
       { ...notification, id: Date.now().toString() },
     ]);
   };
 
+
   const removeNotification = (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    setNotifications((prev: UiNotification[]) => prev.filter((n) => n.id !== id));
   };
+
+
 
   // ── Fetch all tasks from backend ──────────────────────────────────────────
   const fetchTasks = useCallback(async () => {
@@ -137,28 +144,44 @@ export default function App() {
     }
   }, [loggedInUser]);
 
-  // ── Admin: Listen for user "Under Review" submissions via localStorage ──────
+  // ── Admin: Load real notifications from backend ─────────────────────────────
   useEffect(() => {
     if (loggedInUser?.role !== 'admin') return;
 
-    const handleStorageEvent = (e: StorageEvent) => {
-      if (e.key === 'taskpad_review_submitted' && e.newValue) {
-        try {
-          const data = JSON.parse(e.newValue) as { taskName: string; submittedBy: string; taskId: string };
-          addNotification({
-            type: 'warning',
-            title: '🔔 Task Submitted for Review',
-            message: `"${data.taskName}" submitted by ${data.submittedBy} — needs your approval`,
-          });
-          // Re-fetch tasks so admin sees it in Under Review tab
-          fetchTasks();
-        } catch { /* ignore */ }
+    const loadNotifications = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/notifications?userEmail=${encodeURIComponent(loggedInUser.email)}`);
+        const data = await res.json();
+
+        if (Array.isArray(data)) {
+          // Convert backend notifications -> UI notifications
+          const mapped: Notification[] = data
+            .slice(0, 30)
+            .map((n: any) => ({
+              id: String(n.id),
+              type: n.type === 'UNDER_REVIEW' ? 'warning' : n.type === 'COMPLETED' ? 'success' : 'info',
+              title: n.title || 'Notification',
+              message: n.message || '',
+            }));
+
+          setNotifications(mapped);
+        }
+      } catch {
+        // ignore; keep existing notifications
       }
     };
 
-    window.addEventListener('storage', handleStorageEvent);
-    return () => window.removeEventListener('storage', handleStorageEvent);
-  }, [loggedInUser]);
+    loadNotifications();
+
+    // polling to make it "real working" without auth/websocket
+    const t = window.setInterval(() => {
+      loadNotifications();
+      fetchTasks();
+    }, 5000);
+
+    return () => window.clearInterval(t);
+  }, [loggedInUser, fetchTasks]);
+
 
   // ── Auth handlers ─────────────────────────────────────────────────────────
   const handleLogin = (user: LoggedInUser) => {

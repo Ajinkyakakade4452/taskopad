@@ -1,10 +1,13 @@
 package com.edigital.taskpad.controller;
 
+import com.edigital.taskpad.model.Notification;
 import com.edigital.taskpad.model.Task;
+import com.edigital.taskpad.repository.NotificationRepository;
 import com.edigital.taskpad.repository.TaskRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
 
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
@@ -16,11 +19,14 @@ import java.util.Optional;
 public class TaskController {
 
     private final TaskRepository taskRepository;
+    private final NotificationRepository notificationRepository;
 
     @Autowired
-    public TaskController(TaskRepository taskRepository) {
+    public TaskController(TaskRepository taskRepository, NotificationRepository notificationRepository) {
         this.taskRepository = taskRepository;
+        this.notificationRepository = notificationRepository;
     }
+
 
     @PostConstruct
     public void seedDatabase() {
@@ -199,12 +205,66 @@ public class TaskController {
             task.setFollower(taskDetails.getFollower());
 
             // Persist the status updated from frontend
+            String oldStatus = task.getStatus();
             task.setStatus(taskDetails.getStatus());
 
             recomputeTaskStatusFromSubTasks(task);
 
             Task updatedTask = taskRepository.save(task);
+
+            // ── Create real notifications in DB on workflow transitions ──
+            try {
+                String newStatus = updatedTask.getStatus();
+                if (newStatus != null && !newStatus.equalsIgnoreCase(oldStatus)) {
+
+                    // When user submits: Pending -> Under Review (admin needs notification)
+                    if ("Under Review".equalsIgnoreCase(newStatus)) {
+                        String adminEmail = "admin@edigitalknowledge.com";
+                        Notification nt = new Notification();
+                        nt.setUserEmail(adminEmail);
+                        nt.setType("UNDER_REVIEW");
+                        nt.setTitle("🔔 Task submitted for review");
+                        nt.setMessage("Task \"" + updatedTask.getName() + "\" is awaiting admin approval.");
+                        nt.setRead(false);
+                        notificationRepository.save(nt);
+                    }
+
+                    // When admin approves: Under Review -> Completed
+                    if ("Completed".equalsIgnoreCase(newStatus)) {
+                        // Notify assignees/assignTo
+                        List<String> recipients = new ArrayList<>();
+                        if (updatedTask.getAssignTo() != null && !updatedTask.getAssignTo().isBlank()) {
+                            recipients.add(updatedTask.getAssignTo());
+                        }
+                        if (updatedTask.getAssignees() != null) {
+                            for (String a : updatedTask.getAssignees()) {
+                                if (a != null && !a.isBlank()) recipients.add(a);
+                            }
+                        }
+
+                        // This app stores names in task; map them to emails is not implemented.
+                        // Fallback: store notification under userEmail if assignTo matches email; else skip.
+                        // (Later we can enhance with UserRepository name->email mapping.)
+                        for (String r : recipients) {
+                            String maybeEmail = r;
+                            if (maybeEmail.contains("@")) {
+                                Notification nt = new Notification();
+                                nt.setUserEmail(maybeEmail);
+                                nt.setType("COMPLETED");
+                                nt.setTitle("✅ Task approved");
+                                nt.setMessage("Admin marked \"" + updatedTask.getName() + "\" as Completed.");
+                                nt.setRead(false);
+                                notificationRepository.save(nt);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // don't break task update if notification fails
+            }
+
             return ResponseEntity.ok(updatedTask);
+
         } else {
             return ResponseEntity.notFound().build();
         }
