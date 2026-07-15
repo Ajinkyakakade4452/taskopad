@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Check, CheckCircle2, Circle, Clock, Flame, Star, AlertCircle, Send } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Check, CheckCircle2, Circle, Clock, Flame, Star, AlertCircle, Send, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { Task, Priority, TaskStatus } from '../types';
 
 interface TaskTableProps {
@@ -21,7 +21,27 @@ export default function TaskTable({
   onSelectTask,
   onUpdateTaskStatus
 }: TaskTableProps) {
-  const [activeGroupTab, setActiveGroupTab] = useState<'today' | 'overdue' | 'drafts'>('today');
+  const [activeGroupTab, setActiveGroupTab] = useState<'today' | 'overdue' | 'review' | 'drafts'>('today');
+  // ids of tasks currently showing tick animation
+  const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
+  // ids of tasks currently fading out
+  const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
+
+  // Animate-then-complete handler: show tick → fade → update
+  const handleCompleteWithAnimation = useCallback((taskId: string, action: () => void) => {
+    // Phase 1: show green tick immediately
+    setCompletingIds(prev => new Set(prev).add(taskId));
+    // Phase 2: start fade-out after 600ms
+    setTimeout(() => {
+      setFadingIds(prev => new Set(prev).add(taskId));
+    }, 600);
+    // Phase 3: trigger actual status update after fade completes
+    setTimeout(() => {
+      action();
+      setCompletingIds(prev => { const s = new Set(prev); s.delete(taskId); return s; });
+      setFadingIds(prev => { const s = new Set(prev); s.delete(taskId); return s; });
+    }, 1000);
+  }, []);
 
   // Get today's date in YYYY-MM-DD format
   const getTodayDate = () => {
@@ -32,14 +52,27 @@ export default function TaskTable({
 
   const allTasks = tasks;
 
-  const todayTasks = allTasks.filter(t => !t.isDraft && t.dueDate >= today);
-  const overdueTasks = allTasks.filter(t => !t.isDraft && t.dueDate < today);
+  // Exclude completed tasks UNLESS they are currently animating (completing/fading)
+  const todayTasks = allTasks.filter(t =>
+    !t.isDraft && t.dueDate >= today &&
+    (t.status !== 'Completed' || completingIds.has(t.id) || fadingIds.has(t.id))
+  );
+  const overdueTasks = allTasks.filter(t =>
+    !t.isDraft && t.dueDate < today &&
+    (t.status !== 'Completed' || completingIds.has(t.id) || fadingIds.has(t.id))
+  );
+  const reviewTasks = allTasks.filter(t =>
+    (t.status === 'Under Review' || completingIds.has(t.id) || fadingIds.has(t.id)) &&
+    !t.isDraft
+  );
   const draftTasks = allTasks.filter(t => t.isDraft);
 
   const displayedTasks = activeGroupTab === 'today'
     ? todayTasks
     : activeGroupTab === 'overdue'
     ? overdueTasks
+    : activeGroupTab === 'review'
+    ? reviewTasks
     : draftTasks;
 
   // Helper for initials
@@ -148,6 +181,28 @@ export default function TaskTable({
         </button>
 
         <button
+          onClick={() => setActiveGroupTab('review')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeGroupTab === 'review'
+              ? theme === 'dark'
+                ? 'bg-violet-500/15 text-violet-400 border border-violet-500/30'
+                : 'bg-violet-500 text-white shadow-sm'
+              : theme === 'dark'
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <span>⏳ Under Review</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+            activeGroupTab === 'review'
+              ? theme === 'dark' ? 'bg-violet-400/20 text-violet-300' : 'bg-white/20 text-white'
+              : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+          }`}>
+            {reviewTasks.length}
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveGroupTab('drafts')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
             activeGroupTab === 'drafts'
@@ -199,16 +254,25 @@ export default function TaskTable({
               const initials = getInitials(task.assignTo);
               const avatarClass = getAvatarBgColor(initials);
               const isCompleted = task.status === 'Completed';
+              const isCompleting = completingIds.has(task.id);
+              const isFading = fadingIds.has(task.id);
+              const showTick = isCompleted || isCompleting;
 
               return (
                 <tr
                   key={task.id}
-                  onClick={() => onSelectTask?.(task)}
-                  className={`group transition duration-150 cursor-pointer select-none ${
-                    isCompleted
+                  onClick={() => !isCompleting && !isFading && onSelectTask?.(task)}
+                  style={{
+                    transition: 'opacity 0.4s ease, transform 0.4s ease',
+                    opacity: isFading ? 0 : 1,
+                    transform: isFading ? 'translateX(20px)' : 'translateX(0)',
+                    pointerEvents: isFading ? 'none' : undefined,
+                  }}
+                  className={`group cursor-pointer select-none ${
+                    showTick
                       ? theme === 'dark'
-                        ? 'opacity-65 hover:bg-[#0D1631]/60'
-                        : 'opacity-65 hover:bg-slate-50/60'
+                        ? 'bg-emerald-950/20'
+                        : 'bg-emerald-50/60'
                       : theme === 'dark'
                       ? 'hover:bg-[#0D1631]'
                       : 'hover:bg-slate-50'
@@ -221,21 +285,32 @@ export default function TaskTable({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          onToggleStatus(task.id);
+                          if (showTick) return; // prevent double-click
+                          handleCompleteWithAnimation(task.id, () => onToggleStatus(task.id));
                         }}
-                        className={`mt-0.5 w-4.5 h-4.5 rounded-full border flex items-center justify-center transition flex-shrink-0 cursor-pointer ${
-                          isCompleted
-                            ? 'bg-emerald-500 border-emerald-500 text-slate-950'
+                        className={`mt-0.5 w-4.5 h-4.5 rounded-full border flex items-center justify-center flex-shrink-0 cursor-pointer ${
+                          showTick
+                            ? 'bg-emerald-500 border-emerald-500 scale-110'
                             : theme === 'dark'
-                            ? 'border-slate-600 hover:border-cyan-400 text-transparent'
-                            : 'border-slate-300 hover:border-cyan-400 text-transparent'
+                            ? 'border-slate-600 hover:border-emerald-400 hover:bg-emerald-500/10 text-transparent'
+                            : 'border-slate-300 hover:border-emerald-400 hover:bg-emerald-50 text-transparent'
                         }`}
+                        style={{ transition: 'all 0.25s cubic-bezier(0.34,1.56,0.64,1)' }}
+                        title={showTick ? 'Completed' : 'Mark as complete'}
                       >
-                        <Check className="w-3 h-3 text-white font-black stroke-[3.5]" />
+                        <Check
+                          className="w-3 h-3 font-black stroke-[3.5]"
+                          style={{
+                            color: showTick ? 'white' : 'transparent',
+                            transition: 'color 0.2s ease, transform 0.3s ease',
+                            transform: showTick ? 'scale(1)' : 'scale(0)',
+                          }}
+                        />
                       </button>
 
                       <div className="space-y-0.5">
-                        <p className={`font-semibold text-xs leading-normal transition cursor-pointer hover:text-cyan-400 hover:underline underline-offset-2 group-hover:text-cyan-400 ${isCompleted ? 'line-through text-slate-500' : ''}`}>
+                        <p className={`font-semibold text-xs leading-normal transition cursor-pointer hover:text-cyan-400 hover:underline underline-offset-2 group-hover:text-cyan-400 ${showTick ? 'line-through text-slate-400' : ''}`}
+                          style={{ transition: 'all 0.3s ease' }}>
                           {task.name}
                         </p>
                       </div>
@@ -373,6 +448,36 @@ export default function TaskTable({
                         <Send className="w-2.5 h-2.5" />
                         <span>Submit</span>
                       </button>
+                    ) : task.status === 'Under Review' ? (
+                      /* Admin Approve / Reject controls for tasks submitted by users */
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20 mr-1">
+                          Under Review
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isCompleting || isFading) return;
+                            handleCompleteWithAnimation(task.id, () => onUpdateTaskStatus?.(task.id, 'Completed'));
+                          }}
+                          title="Approve — mark as Completed"
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-extrabold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/30 transition cursor-pointer"
+                        >
+                          <ThumbsUp className="w-3 h-3" />
+                          Approve
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUpdateTaskStatus?.(task.id, 'Rejected');
+                          }}
+                          title="Reject task"
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-extrabold bg-red-500/15 text-red-400 border border-red-500/25 hover:bg-red-500/30 transition cursor-pointer"
+                        >
+                          <ThumbsDown className="w-3 h-3" />
+                          Reject
+                        </button>
+                      </div>
                     ) : (
                       <select
                         value={task.status}
@@ -390,8 +495,6 @@ export default function TaskTable({
                             ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
                             : task.status === 'In Progress'
                             ? 'bg-blue-500/15 text-blue-400 border-blue-500/20'
-                            : task.status === 'Under Review'
-                            ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20'
                             : task.status === 'Rejected'
                             ? 'bg-red-500/15 text-red-400 border-red-500/20'
                             : task.status === 'Incomplete'

@@ -178,12 +178,12 @@ public class TaskController {
             task.setTime(taskDetails.getTime());
             task.setAssignTo(taskDetails.getAssignTo());
             task.setAssignees(taskDetails.getAssignees());
-            task.setStatus(taskDetails.getStatus());
-            task.setClient(taskDetails.getClient());
-            task.setService(taskDetails.getService());
-            task.setFollower(taskDetails.getFollower());
+
+            // Persist subtasks first, then recompute status from workflow rules
             task.setDocuments(taskDetails.getDocuments());
             task.setSubTasks(taskDetails.getSubTasks());
+            // keep status consistent with workflow rule
+
             task.setChecklist(taskDetails.getChecklist());
             task.setComments(taskDetails.getComments());
             task.setTimeLogs(taskDetails.getTimeLogs());
@@ -194,11 +194,82 @@ public class TaskController {
             task.setEndTime(taskDetails.getEndTime());
             task.setReminderBefore(taskDetails.getReminderBefore());
 
+            task.setClient(taskDetails.getClient());
+            task.setService(taskDetails.getService());
+            task.setFollower(taskDetails.getFollower());
+
+            // Persist the status updated from frontend
+            task.setStatus(taskDetails.getStatus());
+
+            recomputeTaskStatusFromSubTasks(task);
+
             Task updatedTask = taskRepository.save(task);
             return ResponseEntity.ok(updatedTask);
         } else {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    private void recomputeTaskStatusFromSubTasks(Task task) {
+        List<com.edigital.taskpad.model.SubTask> st = task.getSubTasks();
+        if (st == null || st.isEmpty()) {
+            // Keep existing status if no subtasks exist
+            return;
+        }
+
+        boolean allCompleted = true;
+        boolean allApproved = true;
+
+        for (com.edigital.taskpad.model.SubTask s : st) {
+            if (!s.isCompleted()) allCompleted = false;
+            if (!s.isApprovedByAdmin()) allApproved = false;
+        }
+
+        if (allCompleted && allApproved) {
+            task.setStatus("Completed");
+        } else {
+            // Do not auto-complete; move away from Completed if workflow not satisfied
+            if ("Completed".equalsIgnoreCase(task.getStatus())) {
+                task.setStatus("Pending");
+            }
+        }
+    }
+
+
+    @PostMapping("/{taskId}/subtasks/{subtaskId}/approve")
+    public ResponseEntity<Task> approveSubTask(
+            @PathVariable String taskId,
+            @PathVariable String subtaskId
+    ) {
+        Optional<Task> optionalTask = taskRepository.findById(taskId);
+        if (optionalTask.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Task task = optionalTask.get();
+        List<com.edigital.taskpad.model.SubTask> subtasks = task.getSubTasks();
+        if (subtasks == null || subtasks.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        boolean updated = false;
+        for (com.edigital.taskpad.model.SubTask s : subtasks) {
+            if (s.getId() != null && s.getId().equals(subtaskId)) {
+                s.setApprovedByAdmin(true);
+                s.setApprovedByAdminAt(String.valueOf(System.currentTimeMillis()));
+                updated = true;
+                break;
+            }
+        }
+
+        if (!updated) {
+            return ResponseEntity.notFound().build();
+        }
+
+        task.setSubTasks(subtasks);
+        recomputeTaskStatusFromSubTasks(task);
+        Task saved = taskRepository.save(task);
+        return ResponseEntity.ok(saved);
     }
 
     @DeleteMapping("/{id}")
@@ -210,6 +281,7 @@ public class TaskController {
             return ResponseEntity.notFound().build();
         }
     }
+
 
     @PostMapping("/seed")
     public ResponseEntity<String> forceSeed() {

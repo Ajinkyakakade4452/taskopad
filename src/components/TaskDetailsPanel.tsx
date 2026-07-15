@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
+
+
+
 import { 
   X, Edit2, Save, Plus, MessageSquare, Paperclip, Clock, 
   History, ListTodo, CheckSquare, Square, Trash2, User, 
-  Folder, Calendar, AlertCircle, Play, CheckCircle2 
+  Folder, Calendar, AlertCircle, Play, CheckCircle2, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import { Task, Priority, TaskStatus } from '../types';
 
 interface TaskDetailsPanelProps {
+
   theme: 'light' | 'dark';
   isOpen: boolean;
   task: Task | null;
@@ -14,6 +18,7 @@ interface TaskDetailsPanelProps {
   onSave: (updatedTask: Task) => void;
   users: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string }[];
 }
+
 
 export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave, users }: TaskDetailsPanelProps) {
   // Local edit states
@@ -25,9 +30,16 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   const [priority, setPriority] = useState<Priority>('High');
   const [selectedProject, setSelectedProject] = useState('');
   const [assignTo, setAssignTo] = useState('');
+  const [subtaskWarning, setSubtaskWarning] = useState(false); // gate warning flag
 
   // Local state for interactive features (comments, subtasks, checklist, attachments, timelogs)
-  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean }[]>([]);
+  const [subTasks, setSubTasks] = useState<{
+    id: string;
+    name: string;
+    completed: boolean;
+    approvedByAdmin?: boolean;
+  }[]>([]);
+
   const [checklist, setChecklist] = useState<{ id: string; name: string; checked: boolean }[]>([]);
   const [comments, setComments] = useState<{ id: string; author: string; text: string; date: string }[]>([]);
   const [timeLogs, setTimeLogs] = useState<{ id: string; user: string; duration: string; date: string }[]>([]);
@@ -120,6 +132,15 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
 
   // Save Edit Mode changes
   const handleSaveChanges = () => {
+    // Gate: block saving as Completed if subtasks are pending
+    if (status === 'Completed') {
+      const pendingCount = subTasks.filter(st => !st.completed).length;
+      if (pendingCount > 0) {
+        setSubtaskWarning(true);
+        return;
+      }
+    }
+    setSubtaskWarning(false);
     const updatedTask: Task = {
       ...task,
       name: name.trim() || task.name,
@@ -184,7 +205,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   };
 
   // Add Comment
-  const handleAddComment = (e: React.FormEvent) => {
+  const handleAddComment = (e: any) => {
+
     e.preventDefault();
     if (!newCommentText.trim()) return;
     const newComment = {
@@ -220,7 +242,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   };
 
   // Add Sub Task
-  const handleAddSubTask = (e: React.FormEvent) => {
+  const handleAddSubTask = (e: any) => {
+
     e.preventDefault();
     if (!newSubTaskName.trim()) return;
     const newSub = {
@@ -245,7 +268,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   };
 
   // Add Checklist Item
-  const handleAddChecklist = (e: React.FormEvent) => {
+  const handleAddChecklist = (e: any) => {
+
     e.preventDefault();
     if (!newChecklistItemName.trim()) return;
     const newChk = {
@@ -425,6 +449,44 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
           </div>
         </div>
 
+        {/* Under Review — Admin Approve/Reject Banner */}
+        {task.status === 'Under Review' && !isEditing && (
+          <div className={`px-5 py-3 border-b flex items-center justify-between gap-3 ${
+            theme === 'dark' ? 'bg-violet-900/20 border-violet-500/20' : 'bg-violet-50 border-violet-200'
+          }`}>
+            <div className="flex items-center gap-2">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+              </span>
+              <p className="text-xs font-bold text-violet-300">Awaiting Admin Approval</p>
+              <span className="text-[10px] text-violet-400/70">User submitted for review</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const approved: Task = { ...task, status: 'Completed' };
+                  onSave(approved);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/35 transition cursor-pointer"
+              >
+                <ThumbsUp className="w-3.5 h-3.5" />
+                Approve
+              </button>
+              <button
+                onClick={() => {
+                  const rejected: Task = { ...task, status: 'Rejected' };
+                  onSave(rejected);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/35 transition cursor-pointer"
+              >
+                <ThumbsDown className="w-3.5 h-3.5" />
+                Reject
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Content Section (Scrollable) */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
           
@@ -566,22 +628,49 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
             <div className="space-y-1 col-span-2">
               <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">Status</label>
               {isEditing ? (
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as TaskStatus)}
-                  className={`w-full px-3 py-2 rounded-xl text-xs font-medium focus:ring-1 focus:ring-cyan-500 outline-none border ${
-                    theme === 'dark' 
-                      ? 'bg-[#141C38] border-slate-800 text-slate-200' 
-                      : 'bg-slate-50 border-slate-200 text-slate-800'
-                  }`}
-                >
-                  <option value="Pending">Pending</option>
-                  <option value="Completed">Completed</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Under Review">Under Review</option>
-                  <option value="Rejected">Rejected</option>
-                  <option value="Incomplete">Incomplete</option>
-                </select>
+                <>
+                  <select
+                    value={status}
+                    onChange={(e) => {
+                      const newStatus = e.target.value as TaskStatus;
+                      setStatus(newStatus);
+                      // Auto-clear the warning when user changes away from Completed
+                      if (newStatus !== 'Completed') setSubtaskWarning(false);
+                    }}
+                    className={`w-full px-3 py-2 rounded-xl text-xs font-medium focus:ring-1 focus:ring-cyan-500 outline-none border ${
+                      theme === 'dark' 
+                        ? 'bg-[#141C38] border-slate-800 text-slate-200' 
+                        : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="Completed">Completed</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Under Review">Under Review</option>
+                    <option value="Rejected">Rejected</option>
+                    <option value="Incomplete">Incomplete</option>
+                  </select>
+                  {/* Subtask gate warning — shown when saving blocked */}
+                  {subtaskWarning && status === 'Completed' && (() => {
+                    const pending = subTasks.filter(st => !st.completed);
+                    return pending.length > 0 ? (
+                      <div className="flex items-start gap-2 mt-2 px-3 py-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10">
+                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-400" />
+                        <div>
+                          <p className="text-[11px] font-bold text-amber-300">Complete all subtasks first!</p>
+                          <ul className="mt-1 space-y-0.5">
+                            {pending.map(st => (
+                              <li key={st.id} className="text-[10px] text-amber-400 flex items-center gap-1">
+                                <span className="w-1 h-1 rounded-full bg-amber-400 flex-shrink-0" />
+                                {st.name}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
+                </>
               ) : (
                 <div>
                   <span className={`text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-1 rounded-full border ${
@@ -640,6 +729,20 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                 {subTasks.filter(st => st.completed).length}/{subTasks.length} Done
               </span>
             </div>
+
+            {/* Subtask gate notice (read-only view) — shown when subtasks are pending */}
+            {(() => {
+              const pending = subTasks.filter(st => !st.completed);
+              return !isEditing && subTasks.length > 0 && pending.length > 0 ? (
+                <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/8">
+                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-400" />
+                  <div>
+                    <p className="text-[11px] font-bold text-amber-300">Subtasks pending — task cannot be marked Complete yet</p>
+                    <p className="text-[10px] text-amber-400/70 mt-0.5">{pending.length} of {subTasks.length} subtask(s) remaining</p>
+                  </div>
+                </div>
+              ) : null;
+            })()}
 
             {/* List */}
             <div className="space-y-2">

@@ -135,6 +135,29 @@ export default function App() {
     }
   }, [loggedInUser]);
 
+  // ── Admin: Listen for user "Under Review" submissions via localStorage ──────
+  useEffect(() => {
+    if (loggedInUser?.role !== 'admin') return;
+
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === 'taskpad_review_submitted' && e.newValue) {
+        try {
+          const data = JSON.parse(e.newValue) as { taskName: string; submittedBy: string; taskId: string };
+          addNotification({
+            type: 'warning',
+            title: '🔔 Task Submitted for Review',
+            message: `"${data.taskName}" submitted by ${data.submittedBy} — needs your approval`,
+          });
+          // Re-fetch tasks so admin sees it in Under Review tab
+          fetchTasks();
+        } catch { /* ignore */ }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageEvent);
+    return () => window.removeEventListener('storage', handleStorageEvent);
+  }, [loggedInUser]);
+
   // ── Auth handlers ─────────────────────────────────────────────────────────
   const handleLogin = (user: LoggedInUser) => {
     sessionStorage.setItem('taskpad_user', JSON.stringify(user));
@@ -175,6 +198,19 @@ export default function App() {
           title: 'Task Updated',
           message: `Task "${task.name}" marked as ${status}`,
         });
+        // Notify UserDashboard (same browser) to re-fetch when admin completes/updates a task
+        const completedPayload = JSON.stringify({
+          taskId,
+          taskName: task.name,
+          status,
+          timestamp: Date.now(),
+        });
+        localStorage.setItem('taskpad_task_completed', completedPayload);
+        // Also dispatch for same-tab listeners (storage event only fires in other tabs by default)
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'taskpad_task_completed',
+          newValue: completedPayload,
+        }));
       }
     } catch {
       // optimistic local update on failure

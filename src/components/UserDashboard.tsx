@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import Notifications, { Notification } from './Notification';
 import {
   LayoutDashboard,
   CheckSquare,
+  Square,
   FolderKanban,
   MessageSquare,
   FileText,
@@ -155,6 +157,15 @@ function formatDate(dateStr: string): string {
 
 export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
+
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const addNotification = (n: Omit<Notification, 'id'>) => {
+    const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    setNotifications((prev) => [...prev, { ...n, id }]);
+  };
+  const removeNotification = (id: string) => {
+    setNotifications((prev) => prev.filter((x) => x.id !== id));
+  };
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'today' | 'overdue' | 'draft'>('today');
   const [searchQuery, setSearchQuery] = useState('');
@@ -192,6 +203,30 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
       }
     };
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Listen for admin "Completed" events via localStorage ──────────────────
+  useEffect(() => {
+    const handleAdminCompleted = (e: StorageEvent) => {
+      if (e.key === 'taskpad_task_completed' && e.newValue) {
+        try {
+          const data = JSON.parse(e.newValue) as { taskId: string; taskName: string; status: string };
+          if (data.status === 'Completed') {
+            // Re-fetch so task disappears from user's list
+            fetchTasks();
+            addNotification({
+              type: 'success',
+              title: '✅ Task Approved!',
+              message: `Admin marked "${data.taskName}" as Completed. Great work!`,
+            });
+          }
+        } catch { /* ignore */ }
+      }
+    };
+
+    window.addEventListener('storage', handleAdminCompleted);
+    return () => window.removeEventListener('storage', handleAdminCompleted);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -250,11 +285,58 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
       if (res.ok) {
         setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)));
         if (selectedTask?.id === taskId) setSelectedTask({ ...selectedTask, status: newStatus });
+
+        // Toast notification
+        addNotification({
+          type: newStatus === 'Completed' ? 'success' : 'info',
+          title: 'Task updated',
+          message: `${task.name} is now ${newStatus}`,
+        });
+
+        // ── Notify Admin: user submitted for review ──────────────────────────────
+        if (newStatus === 'Under Review') {
+          const reviewPayload = JSON.stringify({
+            taskId: task.id,
+            taskName: task.name,
+            submittedBy: user.name,
+            timestamp: Date.now(),
+          });
+          localStorage.setItem('taskpad_review_submitted', reviewPayload);
+          // Also dispatch for same-tab listeners
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'taskpad_review_submitted',
+            newValue: reviewPayload,
+          }));
+        }
       }
     } catch {
       console.error('Status update failed');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  // Toggle a single subtask's completed state and persist to backend
+  const handleToggleSubTask = async (task: Task, subTaskId: string) => {
+    const updatedSubTasks = (task.subTasks || []).map((st) =>
+      st.id === subTaskId ? { ...st, completed: !st.completed } : st
+    );
+    const updatedTask: Task = { ...task, subTasks: updatedSubTasks };
+
+    // Optimistic UI update
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? updatedTask : t)));
+    setSelectedTask(updatedTask);
+
+    try {
+      await fetch(`${API_BASE}/tasks/${task.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedTask),
+      });
+    } catch {
+      // revert on failure
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
+      setSelectedTask(task);
     }
   };
 
@@ -446,7 +528,19 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
             <Plus className="w-3 h-3" /> Add Task
           </button>
 
-          <button className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition relative">
+          <button
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition relative"
+            onClick={() => {
+              // quick action: show a test toast when there are no notifications yet
+              if (notifications.length === 0) {
+                addNotification({
+                  type: 'info',
+                  title: 'Notifications',
+                  message: 'No notifications yet. Update a task status to see alerts.',
+                });
+              }
+            }}
+          >
             <Bell className="w-4 h-4" />
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full" />
           </button>
@@ -569,16 +663,64 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          const next: TaskStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
-                          handleStatusChange(task, next);
+                          
+                          if (task.status === 'Completed') {
+                            addNotification({
+                              type: 'info',
+                              title: 'Task Completed',
+                              message: 'Completed tasks can only be reopened/modified by the admin.',
+                            });
+                            return;
+                          }
+
+                          if (task.status === 'Under Review') {
+                            // Allow retracting submission to Pending
+                            handleStatusChange(task, 'Pending');
+                            addNotification({
+                              type: 'info',
+                              title: 'Retracted Review',
+                              message: `Task "${task.name}" retracted from review. Status is now Pending.`,
+                            });
+                            return;
+                          }
+
+                          // Check subtasks gate
+                          const hasSubTasks = task.subTasks && task.subTasks.length > 0;
+                          const pendingSubTasks = hasSubTasks ? task.subTasks!.filter(st => !st.completed) : [];
+                          if (hasSubTasks && pendingSubTasks.length > 0) {
+                            addNotification({
+                              type: 'warning',
+                              title: 'Cannot Complete Task',
+                              message: `Please complete all subtasks first! (${pendingSubTasks.length} pending)`,
+                            });
+                            return;
+                          }
+
+                          // Change status to Under Review
+                          handleStatusChange(task, 'Under Review');
+                          addNotification({
+                            type: 'success',
+                            title: 'Submitted for Review',
+                            message: `Task "${task.name}" submitted for admin review.`,
+                          });
                         }}
                         className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition ${
                           task.status === 'Completed'
-                            ? 'bg-emerald-500 border-emerald-500'
+                            ? 'bg-emerald-500 border-emerald-500 cursor-not-allowed'
+                            : task.status === 'Under Review'
+                            ? 'bg-violet-500 border-violet-500 hover:bg-violet-600'
                             : 'border-slate-600 hover:border-cyan-400'
                         }`}
+                        title={
+                          task.status === 'Completed'
+                            ? 'Completed (Admin approved)'
+                            : task.status === 'Under Review'
+                            ? 'Awaiting admin approval (Click to retract)'
+                            : 'Mark as completed (submits for review)'
+                        }
                       >
                         {task.status === 'Completed' && <CheckCircle2 className="w-3 h-3 text-white" />}
+                        {task.status === 'Under Review' && <Clock3 className="w-3 h-3 text-white" />}
                         {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />}
                       </button>
 
@@ -709,21 +851,69 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                 ))}
               </div>
 
+              {/* Subtask completion gate notice */}
+              {(() => {
+                const hasSubTasks = selectedTask.subTasks && selectedTask.subTasks.length > 0;
+                const pendingSubTasks = hasSubTasks
+                  ? selectedTask.subTasks!.filter((st) => !(st as any).completed)
+                  : [];
+                const allSubTasksDone = hasSubTasks && pendingSubTasks.length === 0;
+                return hasSubTasks && !allSubTasksDone ? (
+                  <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-400" />
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold">Complete all subtasks first!</p>
+                      <p className="text-[11px] text-amber-400/80">Pending subtasks ({pendingSubTasks.length}):</p>
+                      <ul className="space-y-0.5">
+                        {pendingSubTasks.map((st) => (
+                          <li key={st.id} className="text-[11px] text-amber-300 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                            {st.name}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
               <div>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Update Status</p>
                 <div className="grid grid-cols-2 gap-2">
                   {(Object.keys(statusConfig) as TaskStatus[]).map((s) => {
                     const sc = statusConfig[s];
                     const isActive = selectedTask.status === s;
+                    // "Completed" is admin-only — user cannot directly set it
+                    const isAdminOnly = s === 'Completed';
+                    // "Under Review" is set via the Submit button, not here
+                    const isReviewBlocked = s === 'Under Review';
+                    // Block "Completed" also when subtasks pending
+                    const hasSubTasks = selectedTask.subTasks && selectedTask.subTasks.length > 0;
+                    const pendingSubTasks = hasSubTasks
+                      ? selectedTask.subTasks!.filter((st) => !(st as any).completed)
+                      : [];
+                    const isBlocked = isAdminOnly || isReviewBlocked;
 
                     return (
                       <button
                         key={s}
-                        onClick={() => handleStatusChange(selectedTask, s)}
-                        disabled={isActive}
+                        onClick={() => {
+                          if (isBlocked) return;
+                          handleStatusChange(selectedTask, s);
+                        }}
+                        disabled={isActive || isBlocked}
+                        title={
+                          isAdminOnly
+                            ? 'Only admin can approve & mark Completed'
+                            : isReviewBlocked
+                            ? 'Use "Submit for Review" button below'
+                            : undefined
+                        }
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border transition ${
                           isActive
                             ? `${sc.bg} ${sc.color} border-current cursor-default`
+                            : isBlocked
+                            ? 'bg-slate-800/20 text-slate-600 border-slate-800/30 cursor-not-allowed opacity-40'
                             : 'bg-slate-800/40 text-slate-400 border-slate-700/30 hover:bg-slate-700 hover:text-white'
                         }`}
                       >
@@ -741,19 +931,33 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Sub Tasks</p>
                   <div className="space-y-2">
                     {selectedTask.subTasks.map((st) => (
-                      <div key={st.id} className="flex items-center gap-2 p-2 bg-slate-800/30 rounded-lg border border-slate-700/20">
-                        <div
-                          className={`w-3.5 h-3.5 rounded border-2 flex-shrink-0 ${
-                            (st as any).completed ? 'bg-emerald-500 border-emerald-500' : 'border-slate-600'
-                          }`}
-                        />
-                        <span className={`text-xs ${(st as any).completed ? 'line-through text-slate-500' : 'text-slate-200'}`}>{st.name}</span>
-                        <span
-                          className={`ml-auto text-[9px] px-1.5 py-0.5 rounded-full font-bold ${(st as any).completed ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}
-                        >
+                      <button
+                        key={st.id}
+                        onClick={() => handleToggleSubTask(selectedTask, st.id)}
+                        className={`w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition cursor-pointer group ${
+                          (st as any).completed
+                            ? 'bg-emerald-500/8 border-emerald-500/20 hover:bg-emerald-500/15'
+                            : 'bg-slate-800/30 border-slate-700/20 hover:bg-slate-700/40'
+                        }`}
+                      >
+                        {(st as any).completed ? (
+                          <CheckSquare className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 flex-shrink-0 transition" />
+                        )}
+                        <span className={`text-xs text-left flex-1 transition ${
+                          (st as any).completed ? 'line-through text-slate-500' : 'text-slate-200 group-hover:text-white'
+                        }`}>
+                          {st.name}
+                        </span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0 ${
+                          (st as any).completed
+                            ? 'bg-emerald-500/10 text-emerald-400'
+                            : 'bg-amber-500/10 text-amber-400'
+                        }`}>
                           {(st as any).completed ? 'Done' : 'Pending'}
                         </span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -767,13 +971,51 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
               >
                 Close
               </button>
-              <button
-                onClick={() => handleStatusChange(selectedTask, 'Completed')}
-                disabled={selectedTask.status === 'Completed'}
-                className="px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-emerald-500 to-teal-600 rounded-lg shadow-md hover:from-emerald-400 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                {selectedTask.status === 'Completed' ? '✓ Already Completed' : 'Mark as Completed'}
-              </button>
+              {/* Mark as Completed — submits for admin review (Under Review) */}
+              {(() => {
+                const hasSubTasks = selectedTask.subTasks && selectedTask.subTasks.length > 0;
+                const pendingSubTasks = hasSubTasks
+                  ? selectedTask.subTasks!.filter((st) => !(st as any).completed)
+                  : [];
+                const isBlocked = hasSubTasks && pendingSubTasks.length > 0;
+                const isAlreadyReview = selectedTask.status === 'Under Review';
+                const isAlreadyDone = selectedTask.status === 'Completed';
+                return (
+                  <button
+                    onClick={() => {
+                      if (isBlocked || isAlreadyReview || isAlreadyDone) return;
+                      handleStatusChange(selectedTask, 'Under Review');
+                    }}
+                    disabled={isAlreadyDone || isAlreadyReview || isBlocked}
+                    title={
+                      isBlocked
+                        ? `Complete ${pendingSubTasks.length} pending subtask(s) first`
+                        : isAlreadyReview
+                        ? 'Waiting for admin approval'
+                        : isAlreadyDone
+                        ? 'Task already approved & completed'
+                        : 'Submit task for admin review'
+                    }
+                    className={`px-4 py-2 text-xs font-bold rounded-lg shadow-md transition ${
+                      isAlreadyDone
+                        ? 'text-white bg-gradient-to-r from-emerald-500 to-teal-600 opacity-50 cursor-not-allowed'
+                        : isAlreadyReview
+                        ? 'text-violet-300 bg-violet-500/15 border border-violet-500/30 cursor-not-allowed'
+                        : isBlocked
+                        ? 'text-slate-400 bg-slate-800 border border-slate-700 cursor-not-allowed opacity-60'
+                        : 'text-white bg-gradient-to-r from-violet-500 to-blue-600 hover:from-violet-400 hover:to-blue-500'
+                    }`}
+                  >
+                    {isAlreadyDone
+                      ? '✓ Approved & Completed'
+                      : isAlreadyReview
+                      ? '⏳ Awaiting Admin Approval'
+                      : isBlocked
+                      ? `🔒 Complete Subtasks First (${pendingSubTasks.length} left)`
+                      : '📤 Submit for Review'}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1072,6 +1314,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
+        <Notifications notifications={notifications} onRemove={removeNotification} theme="dark" />
         {activeView === 'Dashboard' ? (
           renderDashboardView()
         ) : activeView === 'Tasks' ? (
