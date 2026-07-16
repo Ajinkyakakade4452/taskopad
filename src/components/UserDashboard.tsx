@@ -160,8 +160,16 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const addNotification = (n: Omit<Notification, 'id'>) => {
-    const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    setNotifications((prev) => [...prev, { ...n, id }]);
+    setNotifications((prev) => {
+      // Dedup by (type + title + message): if same toast already exists, skip adding.
+      const isDuplicate = prev.some(
+        (x) => x.type === n.type && x.title === n.title && x.message === n.message
+      );
+      if (isDuplicate) return prev;
+
+      const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      return [...prev, { ...n, id }];
+    });
   };
   const removeNotification = (id: string) => {
     setNotifications((prev) => prev.filter((x) => x.id !== id));
