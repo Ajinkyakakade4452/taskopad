@@ -415,7 +415,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800/50">
               <div>
                 <p className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400">Advanced Filters</p>
-                <p className="text-xs text-slate-400">Refine your task list</p>
+                <p className="text-xs text-slate-400">Refine  task list</p>
               </div>
               <button
                 onClick={() => setIsFilterOpen(false)}
