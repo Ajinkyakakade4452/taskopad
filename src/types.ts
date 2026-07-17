@@ -17,7 +17,7 @@ export interface Task {
   service?: string;
   follower?: string;
   documents?: string[];
-  subTasks?: { id: string; name: string; completed: boolean; approvedByAdmin?: boolean }[];
+  subTasks?: { id: string; name: string; completed: boolean; approvedByAdmin?: boolean; assignTo?: string }[];
 
   checklist?: { id: string; name: string; checked: boolean }[];
   comments?: { id: string; author: string; text: string; date: string }[];

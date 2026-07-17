@@ -116,7 +116,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Sub Tasks State ---
-  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean }[]>([]);
+  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean; assignTo?: string }[]>([]);
   const [newSubTaskName, setNewSubTaskName] = useState('');
 
   // --- Checklist State ---
@@ -309,6 +309,17 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
         return sub;
       })
     );
+  };
+
+  const handleToggleAllSubTasks = () => {
+    const allCompleted = subTasks.every(st => st.completed);
+    setSubTasks(prev => prev.map(st => ({ ...st, completed: !allCompleted })));
+    addActivity(`All sub tasks marked ${!allCompleted ? 'Complete' : 'Incomplete'}`);
+  };
+
+  const handleAssignSubTask = (id: string, assignTo: string) => {
+    setSubTasks(prev => prev.map(st => st.id === id ? { ...st, assignTo } : st));
+    addActivity(`Sub task assigned to: ${assignTo}`);
   };
 
   const handleRemoveSubTask = (id: string, subName: string) => {
@@ -1358,10 +1369,23 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
 
             {/* Dynamic Sub Tasks */}
             <div className="border border-slate-800/10 rounded-xl p-3 bg-slate-950/20 space-y-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                <CheckSquare className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Dynamic Subtasks ({subTasks.length})</span>
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <CheckSquare className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Dynamic Subtasks ({subTasks.length})</span>
+                </span>
+                {subTasks.length > 0 && (
+                  <label className="text-[10px] font-bold text-cyan-400 cursor-pointer flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      className="accent-cyan-500"
+                      checked={subTasks.length > 0 && subTasks.every(st => st.completed)}
+                      onChange={handleToggleAllSubTasks}
+                    />
+                    Select All
+                  </label>
+                )}
+              </div>
 
               {/* Add subtask input */}
               <form onSubmit={handleAddSubTask} className="flex gap-2">
@@ -1387,27 +1411,41 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
 
               {/* Subtasks list */}
               {subTasks.length > 0 && (
-                <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1">
+                <div className="space-y-1.5 pr-1">
                   {subTasks.map((sub) => (
                     <div key={sub.id} className="flex items-center justify-between bg-slate-900/30 px-2 py-1.5 rounded-lg border border-slate-800/10">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-1">
                         <input
                           type="checkbox"
                           checked={sub.completed}
                           onChange={() => handleToggleSubTask(sub.id)}
-                          className="accent-cyan-500"
+                          className="accent-cyan-500 flex-shrink-0"
                         />
-                        <span className={`text-[11px] ${sub.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
+                        <span className={`text-[11px] truncate flex-1 ${sub.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
                           {sub.name}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveSubTask(sub.id, sub.name)}
-                        className="text-slate-500 hover:text-red-400"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={sub.assignTo || ''}
+                          onChange={(e) => handleAssignSubTask(sub.id, e.target.value)}
+                          className={`text-[10px] px-1 py-0.5 rounded border outline-none ${
+                            theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <option value="">Unassigned</option>
+                          {users.map(u => (
+                            <option key={u.name} value={u.name}>{u.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSubTask(sub.id, sub.name)}
+                          className="text-slate-500 hover:text-red-400"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

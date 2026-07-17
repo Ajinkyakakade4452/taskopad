@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import StatCards from './components/StatCards';
@@ -46,6 +46,7 @@ export default function App() {
   const [isBulkTaskModalOpen, setIsBulkTaskModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<string>('Dashboard');
+  const [taskFilterMode, setTaskFilterMode] = useState<'main' | 'subtask' | 'all'>('all');
 
   // Auth state — persist in sessionStorage
   const [loggedInUser, setLoggedInUser] = useState<LoggedInUser | null>(() => {
@@ -388,6 +389,28 @@ export default function App() {
     ? tasks.filter(t => t.project === selectedProject)
     : tasks;
 
+  const displayedTableTasks = useMemo(() => {
+    let base = filteredTasks;
+    if (taskFilterMode === 'main') {
+      return base;
+    } else if (taskFilterMode === 'subtask') {
+      const pseudoSubtasks: Task[] = [];
+      base.forEach(task => {
+        if (task.subTasks && task.subTasks.length > 0) {
+          task.subTasks.forEach((sub, index) => {
+            pseudoSubtasks.push({
+              ...task,
+              id: sub.id || `${task.id}-sub-${index}`,
+              name: `↳ ${sub.name}`,
+              status: sub.completed ? 'Completed' : (task.status === 'Completed' ? 'Completed' : 'Pending'),
+            } as any);
+          });
+        }
+      });
+      return pseudoSubtasks;
+    }
+    return base;
+  }, [filteredTasks, taskFilterMode]);
   // ── Routing ───────────────────────────────────────────────────────────────
 
   // Not logged in → show Login page
@@ -478,6 +501,8 @@ export default function App() {
                       tasks={tasks}
                       user={loggedInUser}
                       onAddTaskClick={() => setIsAddTaskModalOpen(true)}
+                      onFilterClick={setTaskFilterMode}
+                      activeFilter={taskFilterMode}
                     />
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -491,7 +516,7 @@ export default function App() {
                         />
                         <TaskTable
                           theme={theme}
-                          tasks={filteredTasks}
+                          tasks={displayedTableTasks}
                           onToggleStatus={handleToggleTaskStatus}
                           onAddTaskClick={() => setIsAddTaskModalOpen(true)}
                           onSubmitDraft={handleSubmitDraft}
@@ -542,7 +567,7 @@ export default function App() {
                     </div>
                     <TaskTable
                       theme={theme}
-                      tasks={filteredTasks}
+                      tasks={displayedTableTasks}
                       onToggleStatus={handleToggleTaskStatus}
                       onAddTaskClick={() => setIsAddTaskModalOpen(true)}
                       onSubmitDraft={handleSubmitDraft}

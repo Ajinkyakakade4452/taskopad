@@ -16,6 +16,8 @@ interface StatCardsProps {
   tasks: any[];
   user: LoggedInUser;
   onAddTaskClick: () => void;
+  onFilterClick?: (filter: 'main' | 'subtask' | 'all') => void;
+  activeFilter?: 'main' | 'subtask' | 'all';
 }
 
 function isToday(dueDate: string): boolean {
@@ -32,15 +34,12 @@ function isOverdue(dueDate: string): boolean {
   return new Date(dueDate) < today;
 }
 
-export default function StatCards({ theme, tasks, user, onAddTaskClick }: StatCardsProps) {
+export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilterClick, activeFilter = 'all' }: StatCardsProps) {
   // Calculate real stats from tasks
   const totalTaskCount = tasks.length;
 
-  const userNameLower = user.name.toLowerCase();
-  const assignedToMeCount = tasks.filter(t =>
-    (t.assignTo && t.assignTo.toLowerCase().includes(userNameLower)) ||
-    (t.assignees && t.assignees.some(a => a.toLowerCase().includes(userNameLower)))
-  ).length;
+  const allSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.length || 0), 0);
+  const clientApprovedTasks = tasks.filter(t => t.status === 'Under Review');
 
   const dueTodayCount = tasks.filter(t => isToday(t.dueDate)).length;
 
@@ -48,22 +47,24 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick }: StatCa
 
   const stats = [
     {
-      title: 'Total Task',
+      title: 'Main Task',
       value: totalTaskCount,
       icon: CheckSquare,
       color: 'from-cyan-400 to-blue-500',
       bgOpacity: 'bg-cyan-500/10',
       textAccent: 'text-cyan-400',
       id: 'stat-total',
+      filterValue: 'main' as const,
     },
     {
-      title: 'Assigned to me',
-      value: assignedToMeCount,
+      title: 'All Subtask',
+      value: allSubtaskCount,
       icon: UserCheck,
       color: 'from-indigo-400 to-purple-500',
       bgOpacity: 'bg-indigo-500/10',
       textAccent: 'text-indigo-400',
       id: 'stat-assigned',
+      filterValue: 'subtask' as const,
     },
     {
       title: 'Due today',
@@ -95,10 +96,19 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick }: StatCa
             <motion.div
               key={stat.title}
               id={stat.id}
+              onClick={() => {
+                if (stat.filterValue && onFilterClick) {
+                  onFilterClick(activeFilter === stat.filterValue ? 'all' : stat.filterValue);
+                }
+              }}
               whileHover={{ y: -4, scale: 1.01 }}
               transition={{ duration: 0.2 }}
               className={`p-5 rounded-2xl border transition-all duration-300 shadow-sm flex items-center justify-between group ${
-                theme === 'dark'
+                stat.filterValue ? 'cursor-pointer ' : ''
+              }${
+                activeFilter === stat.filterValue
+                  ? theme === 'dark' ? 'bg-[#1e2a52] border-cyan-500/50 text-white shadow-cyan-500/10' : 'bg-cyan-50 border-cyan-400 text-slate-900 shadow-cyan-500/20'
+                  : theme === 'dark'
                   ? 'bg-[#141C38] border-slate-800 text-slate-200 hover:border-slate-700'
                   : 'bg-white border-slate-100 text-slate-800 hover:border-slate-200'
               }`}
@@ -127,66 +137,52 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick }: StatCa
         })}
       </div>
 
-      {/* Right Top Welcome Card (4 columns on xl) */}
+      {/* Right Top Welcome Card -> Client Approved Tasks (4 columns on xl) */}
       <div
-        id="welcome-card"
+        id="client-approved-card"
         className={`xl:col-span-4 rounded-2xl p-5.5 border transition-all duration-300 shadow-md relative overflow-hidden flex flex-col justify-between ${
           theme === 'dark'
-            ? 'bg-gradient-to-br from-cyan-600/30 to-blue-700/30 border-cyan-500/30 text-slate-200'
-            : 'bg-gradient-to-br from-cyan-50/70 via-slate-50 to-indigo-50/50 border-slate-150 text-slate-800'
+            ? 'bg-gradient-to-br from-violet-600/20 to-purple-700/20 border-violet-500/30 text-slate-200'
+            : 'bg-gradient-to-br from-violet-50/70 via-slate-50 to-purple-50/50 border-slate-150 text-slate-800'
         }`}
       >
         {/* Background Decorative Circles */}
-        <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute -bottom-10 -left-10 w-28 h-28 bg-blue-500/10 rounded-full blur-xl pointer-events-none" />
+        <div className="absolute top-0 right-0 w-32 h-32 bg-violet-500/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute -bottom-10 -left-10 w-28 h-28 bg-purple-500/10 rounded-full blur-xl pointer-events-none" />
 
         <div className="z-10 relative flex gap-4 items-start">
           <div className="space-y-2 max-w-[65%]">
-            <span className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-400 text-[9px] font-bold tracking-wider uppercase">
-              Get Started
+            <span className="px-2 py-0.5 rounded-md bg-violet-500/20 text-violet-400 text-[9px] font-bold tracking-wider uppercase">
+              Action Required
             </span>
             <h3 className="font-bold text-base leading-snug tracking-tight">
-              Welcome to Edigital TaskPad!
+              Client Approved Tasks
             </h3>
             <p className="text-xs text-slate-400 leading-relaxed font-normal">
-              You haven’t added any personal tasks for today. Let’s get started.
+              You have <strong className="text-violet-400 text-lg">{clientApprovedTasks.length}</strong> tasks pending your final approval from clients.
             </p>
           </div>
 
-          {/* SVG Vector Illustration Placeholder */}
           <div className="w-[35%] flex justify-end">
-            <svg
-              className="w-16 h-16 opacity-90 select-none pointer-events-none"
-              viewBox="0 0 100 100"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              {/* Laptop screen */}
-              <rect x="15" y="30" width="70" height="42" rx="3" fill="#3b82f6" fillOpacity="0.2" stroke="#3b82f6" strokeWidth="2" />
-              {/* Laptop base */}
-              <line x1="10" y1="72" x2="90" y2="72" stroke="#3b82f6" strokeWidth="4" strokeLinecap="round" />
-              {/* Checkmark block */}
-              <rect x="25" y="40" width="30" height="6" rx="1.5" fill="#22d3ee" fillOpacity="0.8" />
-              <rect x="25" y="50" width="40" height="6" rx="1.5" fill="#3b82f6" fillOpacity="0.8" />
-              {/* Circle avatar placeholder */}
-              <circle cx="70" cy="50" r="8" fill="#10b981" fillOpacity="0.5" />
-              {/* Check tick */}
-              <path d="M68 50 L70 52 L74 48" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+             <div className="w-14 h-14 rounded-2xl bg-violet-500/20 flex items-center justify-center">
+               <AlertTriangle className="w-7 h-7 text-violet-400" />
+             </div>
           </div>
         </div>
 
-        <div className={`z-10 mt-4 pt-3 border-t flex ${theme === 'dark' ? 'border-cyan-500/20' : 'border-slate-800/10'}`}>
+        <div className={`z-10 mt-4 pt-3 border-t flex ${theme === 'dark' ? 'border-violet-500/20' : 'border-slate-800/10'}`}>
           <button
-            onClick={onAddTaskClick}
+            onClick={() => {
+              const reviewTabBtn = document.querySelector('button:has(span:contains("Under Review"))') as HTMLButtonElement;
+              if (reviewTabBtn) reviewTabBtn.click();
+            }}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all duration-200 flex items-center gap-1.5 cursor-pointer transform hover:scale-[1.02] active:scale-[0.98] ${
               theme === 'dark'
-                ? 'bg-white text-blue-900 shadow-lg shadow-white/10 hover:bg-slate-100'
-                : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 shadow-md shadow-cyan-500/15'
+                ? 'bg-violet-500 hover:bg-violet-400 text-white shadow-lg shadow-violet-500/20'
+                : 'bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:from-violet-400 hover:to-purple-500 shadow-md shadow-violet-500/15'
             }`}
           >
-            <Plus className="w-4 h-4" />
-            <span>Add Task</span>
+            <span>Review Tasks</span>
           </button>
         </div>
       </div>
