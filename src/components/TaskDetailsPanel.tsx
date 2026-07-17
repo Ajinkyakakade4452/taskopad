@@ -132,10 +132,11 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
 
   // Save Edit Mode changes
   const handleSaveChanges = () => {
-    // Gate: block saving as Completed if subtasks are pending
-    if (status === 'Completed') {
+    // Gate: block saving as Completed or Approved if subtasks are pending or not approved
+    if (status === 'Completed' || status === 'Approved') {
       const pendingCount = subTasks.filter(st => !st.completed).length;
-      if (pendingCount > 0) {
+      const unapprovedCount = subTasks.filter(st => st.approvedByAdmin !== true).length;
+      if (pendingCount > 0 || unapprovedCount > 0) {
         setSubtaskWarning(true);
         return;
       }
@@ -174,6 +175,23 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   // Helper for toggle functions
   const toggleSubTask = (subId: string) => {
     const updated = subTasks.map(st => st.id === subId ? { ...st, completed: !st.completed } : st);
+    setSubTasks(updated);
+    
+    // Save state instantly to App
+    const updatedTask: Task = {
+      ...task,
+      subTasks: updated,
+      checklist,
+      comments,
+      timeLogs,
+      documents: attachments,
+    };
+    onSave(updatedTask);
+  };
+
+  // Approve Subtask (Admin only)
+  const approveSubTask = (subId: string) => {
+    const updated = subTasks.map(st => st.id === subId ? { ...st, approvedByAdmin: true } : st);
     setSubTasks(updated);
     
     // Save state instantly to App
@@ -634,8 +652,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                     onChange={(e) => {
                       const newStatus = e.target.value as TaskStatus;
                       setStatus(newStatus);
-                      // Auto-clear the warning when user changes away from Completed
-                      if (newStatus !== 'Completed') setSubtaskWarning(false);
+                      // Auto-clear the warning when user changes away from Completed or Approved
+                      if (newStatus !== 'Completed' && newStatus !== 'Approved') setSubtaskWarning(false);
                     }}
                     className={`w-full px-3 py-2 rounded-xl text-xs font-medium focus:ring-1 focus:ring-cyan-500 outline-none border ${
                       theme === 'dark' 
@@ -644,25 +662,34 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                     }`}
                   >
                     <option value="Pending">Pending</option>
-                    <option value="Completed">Completed</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Under Review">Under Review</option>
-                    <option value="Rejected">Rejected</option>
-                    <option value="Incomplete">Incomplete</option>
+                  <option value="Completed">Completed</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Under Review">Under Review</option>
+                  <option value="Rejected">Rejected</option>
+                  <option value="Incomplete">Incomplete</option>
+                  <option value="Approved">Approved</option>
                   </select>
                   {/* Subtask gate warning — shown when saving blocked */}
-                  {subtaskWarning && status === 'Completed' && (() => {
+                  {subtaskWarning && (status === 'Completed' || status === 'Approved') && (() => {
                     const pending = subTasks.filter(st => !st.completed);
-                    return pending.length > 0 ? (
+                    const unapproved = subTasks.filter(st => st.approvedByAdmin !== true);
+                    const hasIssues = pending.length > 0 || unapproved.length > 0;
+                    return hasIssues ? (
                       <div className="flex items-start gap-2 mt-2 px-3 py-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10">
                         <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-400" />
                         <div>
-                          <p className="text-[11px] font-bold text-amber-300">Complete all subtasks first!</p>
+                          <p className="text-[11px] font-bold text-amber-300">Complete and approve all subtasks first!</p>
                           <ul className="mt-1 space-y-0.5">
                             {pending.map(st => (
                               <li key={st.id} className="text-[10px] text-amber-400 flex items-center gap-1">
                                 <span className="w-1 h-1 rounded-full bg-amber-400 flex-shrink-0" />
-                                {st.name}
+                                {st.name} (pending)
+                              </li>
+                            ))}
+                            {unapproved.map(st => (
+                              <li key={st.id} className="text-[10px] text-amber-400 flex items-center gap-1">
+                                <span className="w-1 h-1 rounded-full bg-amber-400 flex-shrink-0" />
+                                {st.name} (needs approval)
                               </li>
                             ))}
                           </ul>
@@ -674,7 +701,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               ) : (
                 <div>
                   <span className={`text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-1 rounded-full border ${
-                    status === 'Completed'
+                    status === 'Completed' || status === 'Approved'
                       ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
                       : status === 'In Progress'
                       ? 'bg-blue-500/15 text-blue-400 border-blue-500/20'
@@ -730,15 +757,17 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               </span>
             </div>
 
-            {/* Subtask gate notice (read-only view) — shown when subtasks are pending */}
+            {/* Subtask gate notice (read-only view) — shown when subtasks are pending or unapproved */}
             {(() => {
               const pending = subTasks.filter(st => !st.completed);
-              return !isEditing && subTasks.length > 0 && pending.length > 0 ? (
+              const unapproved = subTasks.filter(st => st.approvedByAdmin !== true);
+              const hasIssues = pending.length > 0 || unapproved.length > 0;
+              return !isEditing && subTasks.length > 0 && hasIssues ? (
                 <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/8">
                   <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-400" />
                   <div>
-                    <p className="text-[11px] font-bold text-amber-300">Subtasks pending — task cannot be marked Complete yet</p>
-                    <p className="text-[10px] text-amber-400/70 mt-0.5">{pending.length} of {subTasks.length} subtask(s) remaining</p>
+                    <p className="text-[11px] font-bold text-amber-300">Subtasks pending or unapproved — task cannot be marked Complete or Approved yet</p>
+                    <p className="text-[10px] text-amber-400/70 mt-0.5">{pending.length + unapproved.length} of {subTasks.length} subtask(s) remaining</p>
                   </div>
                 </div>
               ) : null;
@@ -763,9 +792,21 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                       <Square className="w-4.5 h-4.5 text-slate-400 hover:text-cyan-400" />
                     )}
                   </button>
-                  <span className={`text-xs font-medium transition ${st.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
+                  <span className={`text-xs font-medium transition flex-1 ${st.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
                     {st.name}
                   </span>
+                  {st.approvedByAdmin ? (
+                    <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                      Approved
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => approveSubTask(st.id)}
+                      className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer"
+                    >
+                      Approve
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

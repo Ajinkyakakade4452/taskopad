@@ -1,4 +1,4 @@
-import { CheckSquare, UserCheck, CalendarDays, AlertTriangle, Plus } from 'lucide-react';
+import { CheckSquare, UserCheck, CalendarDays, AlertTriangle, Plus, CheckCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface LoggedInUser {
@@ -16,8 +16,8 @@ interface StatCardsProps {
   tasks: any[];
   user: LoggedInUser;
   onAddTaskClick: () => void;
-  onFilterClick?: (filter: 'main' | 'subtask' | 'all') => void;
-  activeFilter?: 'main' | 'subtask' | 'all';
+  onFilterClick?: (filter: 'main' | 'subtask' | 'subtask-approved' | 'all' | 'review') => void;
+  activeFilter?: 'main' | 'subtask' | 'subtask-approved' | 'all' | 'review';
 }
 
 function isToday(dueDate: string): boolean {
@@ -39,6 +39,7 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
   const totalTaskCount = tasks.length;
 
   const allSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.length || 0), 0);
+  const unapprovedSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.filter(st => st.approvedByAdmin !== true).length || 0), 0);
   const clientApprovedTasks = tasks.filter(t => t.status === 'Under Review');
 
   const dueTodayCount = tasks.filter(t => isToday(t.dueDate)).length;
@@ -67,6 +68,16 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
       filterValue: 'subtask' as const,
     },
     {
+      title: 'Pending Approval',
+      value: unapprovedSubtaskCount,
+      icon: CheckCircle,
+      color: 'from-emerald-400 to-teal-500',
+      bgOpacity: 'bg-emerald-500/10',
+      textAccent: 'text-emerald-400',
+      id: 'stat-unapproved-subtasks',
+      filterValue: 'subtask-approved' as const,
+    },
+    {
       title: 'Due today',
       value: dueTodayCount,
       icon: CalendarDays,
@@ -88,10 +99,11 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 w-full select-none">
-      {/* 4 Stats Cards (8 columns on xl) */}
-      <div className="xl:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* 5 Stats Cards (8 columns on xl) */}
+      <div className="xl:col-span-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {stats.map((stat, i) => {
           const Icon = stat.icon;
+          const isActive = activeFilter === stat.filterValue;
           return (
             <motion.div
               key={stat.title}
@@ -106,13 +118,22 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
               className={`p-5 rounded-2xl border transition-all duration-300 shadow-sm flex items-center justify-between group ${
                 stat.filterValue ? 'cursor-pointer ' : ''
               }${
-                activeFilter === stat.filterValue
-                  ? theme === 'dark' ? 'bg-[#1e2a52] border-cyan-500/50 text-white shadow-cyan-500/10' : 'bg-cyan-50 border-cyan-400 text-slate-900 shadow-cyan-500/20'
+                isActive
+                  ? theme === 'dark' 
+                    ? stat.filterValue === 'main' 
+                      ? 'bg-[#1e2a52] border-cyan-500/50 text-white shadow-cyan-500/10' 
+                      : stat.filterValue === 'subtask'
+                      ? 'bg-[#2a1e52] border-violet-500/50 text-white shadow-violet-500/10'
+                      : 'bg-[#1e3a32] border-emerald-500/50 text-white shadow-emerald-500/10'
+                    : stat.filterValue === 'main'
+                      ? 'bg-cyan-50 border-cyan-400 text-slate-900 shadow-cyan-500/20'
+                      : stat.filterValue === 'subtask'
+                      ? 'bg-violet-50 border-violet-400 text-slate-900 shadow-violet-500/20'
+                      : 'bg-emerald-50 border-emerald-400 text-slate-900 shadow-emerald-500/20'
                   : theme === 'dark'
                   ? 'bg-[#141C38] border-slate-800 text-slate-200 hover:border-slate-700'
                   : 'bg-white border-slate-100 text-slate-800 hover:border-slate-200'
-              }`}
-            >
+              }`}>
               <div className="space-y-2">
                 <p className="text-slate-400 font-medium text-xs tracking-wide uppercase">
                   {stat.title}
@@ -140,9 +161,16 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
       {/* Right Top Welcome Card -> Client Approved Tasks (4 columns on xl) */}
       <div
         id="client-approved-card"
-        className={`xl:col-span-4 rounded-2xl p-5.5 border transition-all duration-300 shadow-md relative overflow-hidden flex flex-col justify-between ${
-          theme === 'dark'
-            ? 'bg-gradient-to-br from-violet-600/20 to-purple-700/20 border-violet-500/30 text-slate-200'
+        onClick={() => {
+          if (onFilterClick) {
+            onFilterClick(activeFilter === 'review' ? 'all' : 'review');
+          }
+        }}
+        className={`xl:col-span-4 rounded-2xl p-5.5 border transition-all duration-300 shadow-md relative overflow-hidden flex flex-col justify-between cursor-pointer group ${
+          activeFilter === 'review'
+            ? theme === 'dark' ? 'bg-gradient-to-br from-violet-600/30 to-purple-700/30 border-violet-400/50 text-white shadow-violet-500/20' : 'bg-gradient-to-br from-violet-100 via-slate-50 to-purple-100 border-violet-400 text-slate-900'
+            : theme === 'dark'
+            ? 'bg-gradient-to-br from-violet-600/20 to-purple-700/20 border-violet-500/30 text-slate-200 hover:border-violet-400/40'
             : 'bg-gradient-to-br from-violet-50/70 via-slate-50 to-purple-50/50 border-slate-150 text-slate-800'
         }`}
       >
@@ -164,7 +192,7 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
           </div>
 
           <div className="w-[35%] flex justify-end">
-             <div className="w-14 h-14 rounded-2xl bg-violet-500/20 flex items-center justify-center">
+             <div className="w-14 h-14 rounded-2xl bg-violet-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                <AlertTriangle className="w-7 h-7 text-violet-400" />
              </div>
           </div>
@@ -172,9 +200,11 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
 
         <div className={`z-10 mt-4 pt-3 border-t flex ${theme === 'dark' ? 'border-violet-500/20' : 'border-slate-800/10'}`}>
           <button
-            onClick={() => {
-              const reviewTabBtn = document.querySelector('button:has(span:contains("Under Review"))') as HTMLButtonElement;
-              if (reviewTabBtn) reviewTabBtn.click();
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onFilterClick) {
+                onFilterClick(activeFilter === 'review' ? 'all' : 'review');
+              }
             }}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all duration-200 flex items-center gap-1.5 cursor-pointer transform hover:scale-[1.02] active:scale-[0.98] ${
               theme === 'dark'

@@ -46,7 +46,7 @@ export default function App() {
   const [isBulkTaskModalOpen, setIsBulkTaskModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<string>('Dashboard');
-  const [taskFilterMode, setTaskFilterMode] = useState<'main' | 'subtask' | 'all'>('all');
+  const [taskFilterMode, setTaskFilterMode] = useState<'main' | 'subtask' | 'subtask-approved' | 'all' | 'review'>('all');
 
   // Auth state — persist in sessionStorage
   const [loggedInUser, setLoggedInUser] = useState<LoggedInUser | null>(() => {
@@ -386,28 +386,34 @@ export default function App() {
   const handleMobileSidebarToggle = () => setIsMobileSidebarOpen(prev => !prev);
 
   const filteredTasks = selectedProject
-    ? tasks.filter(t => t.project === selectedProject)
-    : tasks;
+    ? tasks.filter(t => t.project === selectedProject && t.status !== 'Approved' && t.status !== 'Completed')
+    : tasks.filter(t => t.status !== 'Approved' && t.status !== 'Completed');
 
   const displayedTableTasks = useMemo(() => {
     let base = filteredTasks;
     if (taskFilterMode === 'main') {
       return base;
-    } else if (taskFilterMode === 'subtask') {
+    } else if (taskFilterMode === 'subtask' || taskFilterMode === 'subtask-approved') {
       const pseudoSubtasks: Task[] = [];
       base.forEach(task => {
         if (task.subTasks && task.subTasks.length > 0) {
           task.subTasks.forEach((sub, index) => {
+            if (taskFilterMode === 'subtask-approved' && sub.approvedByAdmin) {
+              return; // Skip approved subtasks for this filter (show only pending approval)
+            }
             pseudoSubtasks.push({
               ...task,
               id: sub.id || `${task.id}-sub-${index}`,
               name: `↳ ${sub.name}`,
               status: sub.completed ? 'Completed' : (task.status === 'Completed' ? 'Completed' : 'Pending'),
+              subTask: sub, // Store the subtask object for reference
             } as any);
           });
         }
       });
       return pseudoSubtasks;
+    } else if (taskFilterMode === 'review') {
+      return base.filter(task => task.status === 'Under Review');
     }
     return base;
   }, [filteredTasks, taskFilterMode]);
@@ -522,6 +528,7 @@ export default function App() {
                           onSubmitDraft={handleSubmitDraft}
                           onSelectTask={handleSelectTaskForDetails}
                           onUpdateTaskStatus={handleUpdateTaskStatus}
+                          isSubtaskFilterMode={taskFilterMode === 'subtask' || taskFilterMode === 'subtask-approved'}
                         />
                       </div>
                       <div className="lg:col-span-4 space-y-8">
@@ -573,6 +580,7 @@ export default function App() {
                       onSubmitDraft={handleSubmitDraft}
                       onSelectTask={handleSelectTaskForDetails}
                       onUpdateTaskStatus={handleUpdateTaskStatus}
+                      isSubtaskFilterMode={taskFilterMode === 'subtask' || taskFilterMode === 'subtask-approved'}
                     />
                   </div>
                 );
@@ -686,12 +694,6 @@ case 'Projects':
         users={users}
       />
 
-      {/* Notifications */}
-      <Notifications
-        notifications={notifications}
-        onRemove={removeNotification}
-        theme={theme}
-      />
     </div>
   );
 }

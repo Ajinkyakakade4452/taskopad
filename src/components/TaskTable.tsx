@@ -10,6 +10,7 @@ interface TaskTableProps {
   onSubmitDraft?: (taskId: string) => void;
   onSelectTask?: (task: Task) => void;
   onUpdateTaskStatus?: (taskId: string, status: TaskStatus) => void;
+  isSubtaskFilterMode?: boolean;
 }
 
 export default function TaskTable({ 
@@ -19,7 +20,8 @@ export default function TaskTable({
   onAddTaskClick, 
   onSubmitDraft,
   onSelectTask,
-  onUpdateTaskStatus
+  onUpdateTaskStatus,
+  isSubtaskFilterMode = false
 }: TaskTableProps) {
   const [activeGroupTab, setActiveGroupTab] = useState<'today' | 'overdue' | 'review' | 'drafts'>('today');
   // ids of tasks currently showing tick animation
@@ -67,7 +69,9 @@ export default function TaskTable({
   );
   const draftTasks = allTasks.filter(t => t.isDraft);
 
-  const displayedTasks = activeGroupTab === 'today'
+  const displayedTasks = isSubtaskFilterMode
+    ? allTasks // Show all pseudo-subtasks when in subtask mode
+    : activeGroupTab === 'today'
     ? todayTasks
     : activeGroupTab === 'overdue'
     ? overdueTasks
@@ -134,96 +138,98 @@ export default function TaskTable({
         </button>
       </div>
 
-      {/* Grouping/Queue Segments */}
-      <div className="flex flex-wrap items-center gap-2 mb-6 border-b border-slate-800/10 pb-4 select-none">
-        <button
-          onClick={() => setActiveGroupTab('today')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-            activeGroupTab === 'today'
-              ? theme === 'dark'
-                ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
-                : 'bg-cyan-500 text-white shadow-sm'
-              : theme === 'dark'
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <span>📅 Today & Future</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
-            activeGroupTab === 'today'
-              ? theme === 'dark' ? 'bg-cyan-400/20 text-cyan-300' : 'bg-white/20 text-white'
-              : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
-          }`}>
-            {todayTasks.length}
-          </span>
-        </button>
+      {/* Grouping/Queue Segments - only show when not in subtask mode */}
+      {!isSubtaskFilterMode && (
+        <div className="flex flex-wrap items-center gap-2 mb-6 border-b border-slate-800/10 pb-4 select-none">
+          <button
+            onClick={() => setActiveGroupTab('today')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeGroupTab === 'today'
+                ? theme === 'dark'
+                  ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                  : 'bg-cyan-500 text-white shadow-sm'
+                : theme === 'dark'
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <span>📅 Today & Future</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+              activeGroupTab === 'today'
+                ? theme === 'dark' ? 'bg-cyan-400/20 text-cyan-300' : 'bg-white/20 text-white'
+                : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+            }`}>
+              {todayTasks.length}
+            </span>
+          </button>
 
-        <button
-          onClick={() => setActiveGroupTab('overdue')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-            activeGroupTab === 'overdue'
-              ? theme === 'dark'
-                ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                : 'bg-rose-500 text-white shadow-sm'
-              : theme === 'dark'
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <span>⚠️ Overdue Queue</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
-            activeGroupTab === 'overdue'
-              ? theme === 'dark' ? 'bg-rose-400/20 text-rose-300' : 'bg-white/20 text-white'
-              : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
-          }`}>
-            {overdueTasks.length}
-          </span>
-        </button>
+          <button
+            onClick={() => setActiveGroupTab('overdue')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeGroupTab === 'overdue'
+                ? theme === 'dark'
+                  ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                  : 'bg-rose-500 text-white shadow-sm'
+                : theme === 'dark'
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <span>⚠️ Overdue Queue</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+              activeGroupTab === 'overdue'
+                ? theme === 'dark' ? 'bg-rose-400/20 text-rose-300' : 'bg-white/20 text-white'
+                : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+            }`}>
+              {overdueTasks.length}
+            </span>
+          </button>
 
-        <button
-          onClick={() => setActiveGroupTab('review')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-            activeGroupTab === 'review'
-              ? theme === 'dark'
-                ? 'bg-violet-500/15 text-violet-400 border border-violet-500/30'
-                : 'bg-violet-500 text-white shadow-sm'
-              : theme === 'dark'
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <span>⏳ Under Review</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
-            activeGroupTab === 'review'
-              ? theme === 'dark' ? 'bg-violet-400/20 text-violet-300' : 'bg-white/20 text-white'
-              : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
-          }`}>
-            {reviewTasks.length}
-          </span>
-        </button>
+          <button
+            onClick={() => setActiveGroupTab('review')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeGroupTab === 'review'
+                ? theme === 'dark'
+                  ? 'bg-violet-500/15 text-violet-400 border border-violet-500/30'
+                  : 'bg-violet-500 text-white shadow-sm'
+                : theme === 'dark'
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <span>⏳ Under Review</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+              activeGroupTab === 'review'
+                ? theme === 'dark' ? 'bg-violet-400/20 text-violet-300' : 'bg-white/20 text-white'
+                : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+            }`}>
+              {reviewTasks.length}
+            </span>
+          </button>
 
-        <button
-          onClick={() => setActiveGroupTab('drafts')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-            activeGroupTab === 'drafts'
-              ? theme === 'dark'
-                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                : 'bg-amber-500 text-white shadow-sm'
-              : theme === 'dark'
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <span>📝 Draft Tasks</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
-            activeGroupTab === 'drafts'
-              ? theme === 'dark' ? 'bg-amber-400/20 text-amber-300' : 'bg-white/20 text-white'
-              : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
-          }`}>
-            {draftTasks.length}
-          </span>
-        </button>
-      </div>
+          <button
+            onClick={() => setActiveGroupTab('drafts')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeGroupTab === 'drafts'
+                ? theme === 'dark'
+                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                  : 'bg-amber-500 text-white shadow-sm'
+                : theme === 'dark'
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <span>📝 Draft Tasks</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+              activeGroupTab === 'drafts'
+                ? theme === 'dark' ? 'bg-amber-400/20 text-amber-300' : 'bg-white/20 text-white'
+                : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+            }`}>
+              {draftTasks.length}
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* Table Container */}
       <div className="w-full overflow-x-auto custom-scrollbar rounded-xl border border-slate-800/10">

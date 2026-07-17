@@ -1,10 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus, Trash2, PencilLine, X } from 'lucide-react';
+import { Loader2, Plus, Trash2, PencilLine, X, Users } from 'lucide-react';
 import { Project } from '../types';
-
-interface LoggedInUserLike {
-  role: 'admin' | 'user';
-}
+import ProjectTeamMembersPanel from './ProjectTeamMembersPanel';
 
 const API_BASE = '/api/projects';
 
@@ -30,9 +27,6 @@ function randomProjectColor() {
 }
 
 export default function AdminProjectsPage() {
-  // Admin gate: App routes only render this for admin, but keep component safe.
-  // (We cannot access loggedInUser here; so we do soft rendering: show UI regardless if not admin.)
-
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,10 +45,13 @@ export default function AdminProjectsPage() {
 
   // Edit Modal
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState<(Project & { password?: string }) | null>(null);
+  const [editForm, setEditForm] = useState<Project | null>(null);
 
   // Delete
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // Selected project for team members
+  const [selectedProjectForTeam, setSelectedProjectForTeam] = useState<Project | null>(null);
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -73,6 +70,7 @@ export default function AdminProjectsPage() {
 
   useEffect(() => {
     fetchProjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const resetAddForm = () => {
@@ -91,7 +89,7 @@ export default function AdminProjectsPage() {
   };
 
   const openEdit = (p: Project) => {
-    setEditForm({ ...p });
+    setEditForm(p);
     setIsEditOpen(true);
   };
 
@@ -99,6 +97,7 @@ export default function AdminProjectsPage() {
     const name = (form.name || '').trim();
     const hasEndDate = !!form.hasEndDate;
     const endDate = (form.endDate || '').trim();
+
     if (!name) {
       setError('Project name is required');
       return;
@@ -124,6 +123,7 @@ export default function AdminProjectsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data?.message || 'Failed to add project');
@@ -144,6 +144,7 @@ export default function AdminProjectsPage() {
     const name = (editForm.name || '').trim();
     const hasEndDate = !!editForm.hasEndDate;
     const endDate = (editForm.endDate || '').trim();
+
     if (!name) {
       setError('Project name is required');
       return;
@@ -227,6 +228,7 @@ export default function AdminProjectsPage() {
         </div>
         {headerRight}
       </div>
+      
 
       {error && (
         <div className="mt-5 px-4 py-3 rounded-xl border border-red-500/20 bg-red-500/10 text-red-200 text-xs">
@@ -257,8 +259,9 @@ export default function AdminProjectsPage() {
                 return (
                   <div
                     key={p.id}
-                    className="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-5 flex items-center justify-between gap-4 hover:border-slate-700 transition"
+                    className="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-5 grid grid-cols-[1.4fr_0.8fr_0.8fr_0.7fr] gap-4 items-center hover:border-slate-700 transition"
                   >
+                    {/* Project Info */}
                     <div className="flex items-center gap-4 min-w-0">
                       <div
                         className="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white shadow-md flex-shrink-0"
@@ -278,6 +281,7 @@ export default function AdminProjectsPage() {
                       </div>
                     </div>
 
+                    {/* Timeline */}
                     <div className="text-right text-xs text-slate-500">
                       {p.hasEndDate ? (
                         <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 font-bold">
@@ -290,9 +294,10 @@ export default function AdminProjectsPage() {
                       )}
                     </div>
 
+                    {/* Progress */}
                     <div className="text-right text-xs text-slate-500">
                       <div className="font-bold text-slate-200">{p.completedTasks}/{p.totalTasks || 0} ({percent}%)</div>
-                      <div className="mt-2 h-2.5 w-40 ml-auto rounded-full overflow-hidden bg-[#0D1631]">
+                      <div className="mt-2 h-2.5 w-full rounded-full overflow-hidden bg-[#0D1631]">
                         <div
                           className="h-full bg-cyan-500"
                           style={{ width: `${percent}%` }}
@@ -300,7 +305,16 @@ export default function AdminProjectsPage() {
                       </div>
                     </div>
 
+                    {/* Actions */}
                     <div className="flex items-center gap-2 justify-end">
+                      <button
+                        onClick={() => setSelectedProjectForTeam(p)}
+                        disabled={busy === 'edit' || busy === 'delete'}
+                        className="p-2 rounded-lg border border-slate-700/50 bg-slate-800/30 text-slate-300 hover:bg-slate-800/60 hover:text-cyan-300 transition text-xs"
+                        title="Manage team members"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         onClick={() => openEdit(p)}
                         disabled={busy === 'edit' || busy === 'delete'}
@@ -505,6 +519,37 @@ export default function AdminProjectsPage() {
         </div>
       )}
 
+      {/* Team Members Panel */}
+      {selectedProjectForTeam && (
+        <div className="fixed inset-0 z-[80]">
+          <div
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+            onClick={() => setSelectedProjectForTeam(null)}
+          />
+          <div
+            className="absolute right-0 top-0 h-full w-full max-w-md bg-[#0A1128] border-l border-slate-700 shadow-2xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800/50">
+              <div>
+                <p className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400">Manage Team</p>
+                <p className="text-xs text-slate-400 mt-1">{selectedProjectForTeam.name}</p>
+              </div>
+              <button
+                onClick={() => setSelectedProjectForTeam(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-5">
+              <ProjectTeamMembersPanel project={selectedProjectForTeam} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirm */}
       {deleteId && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center">
@@ -556,6 +601,7 @@ export default function AdminProjectsPage() {
         </div>
       )}
     </div>
+    
   );
 }
 

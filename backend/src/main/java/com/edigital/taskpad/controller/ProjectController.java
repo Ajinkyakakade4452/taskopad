@@ -2,8 +2,15 @@ package com.edigital.taskpad.controller;
 
 import com.edigital.taskpad.model.Project;
 import com.edigital.taskpad.model.Task;
+import com.edigital.taskpad.model.ProjectTeamMember;
+
+import com.edigital.taskpad.controller.ProjectMembersDTO;
+
+
+import com.edigital.taskpad.repository.ProjectTeamMemberRepository;
 
 import com.edigital.taskpad.repository.ProjectRepository;
+
 import com.edigital.taskpad.repository.TaskRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -18,12 +25,19 @@ public class ProjectController {
 
     private final ProjectRepository projectRepository;
     private final TaskRepository taskRepository;
+    private final ProjectTeamMemberRepository projectTeamMemberRepository;
 
     @Autowired
-    public ProjectController(ProjectRepository projectRepository, TaskRepository taskRepository) {
+    public ProjectController(
+            ProjectRepository projectRepository,
+            TaskRepository taskRepository,
+            ProjectTeamMemberRepository projectTeamMemberRepository
+    ) {
         this.projectRepository = projectRepository;
         this.taskRepository = taskRepository;
+        this.projectTeamMemberRepository = projectTeamMemberRepository;
     }
+
 
     @GetMapping
     public ResponseEntity<List<Project>> getAllProjects() {
@@ -155,6 +169,46 @@ public class ProjectController {
         }
 
         projectRepository.deleteById(id);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/{id}/members")
+    public ResponseEntity<List<Map<String, Object>>> getProjectMembers(@PathVariable("id") String projectId) {
+        List<ProjectTeamMember> rels = projectTeamMemberRepository.findByProjectId(projectId);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (ProjectTeamMember r : rels) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("projectId", r.getProjectId());
+            item.put("userId", r.getUserId());
+            out.add(item);
+        }
+        return ResponseEntity.ok(out);
+    }
+
+    @PostMapping("/{id}/members")
+    public ResponseEntity<?> addProjectMembers(@PathVariable("id") String projectId, @RequestBody ProjectMembersDTO dto) {
+        if (dto == null || dto.userIds == null) {
+            return badRequest("userIds is required");
+        }
+
+        for (String userId : dto.userIds) {
+            if (userId == null) continue;
+            String trimmed = userId.trim();
+            if (trimmed.isEmpty()) continue;
+
+            boolean exists = projectTeamMemberRepository.findByProjectIdAndUserId(projectId, trimmed).isPresent();
+            if (!exists) {
+                projectTeamMemberRepository.save(new ProjectTeamMember(projectId, trimmed));
+            }
+        }
+
+        return ResponseEntity.ok().build();
+    }
+
+
+    @DeleteMapping("/{id}/members/{userId}")
+    public ResponseEntity<?> removeProjectMember(@PathVariable("id") String projectId, @PathVariable("userId") String userId) {
+        projectTeamMemberRepository.deleteByProjectIdAndUserId(projectId, userId);
         return ResponseEntity.ok().build();
     }
 

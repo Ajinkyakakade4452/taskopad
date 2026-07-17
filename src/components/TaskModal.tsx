@@ -35,6 +35,10 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
   // --- Core State Variables ---
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [startDate, setStartDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
   const [dueDate, setDueDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
@@ -84,27 +88,26 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
   const [reminderBefore, setReminderBefore] = useState('30 minutes before');
 
   // --- Clients State ---
-  const [clientsList, setClientsList] = useState<string[]>([
-    'Om Associates',
-    'YouGo Corp',
-    'Net Access Labs',
-    'Star Logistics'
-  ]);
+  const [clientsList, setClientsList] = useState<string[]>(() => {
+    const saved = localStorage.getItem('taskpad_clients');
+    return saved ? JSON.parse(saved) : ['Om Associates', 'YouGo Corp', 'Net Access Labs', 'Star Logistics'];
+  });
   const [selectedClient, setSelectedClient] = useState('Net Access Labs');
   const [newClientName, setNewClientName] = useState('');
   const [showAddClientInput, setShowAddClientInput] = useState(false);
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+  const clientRef = useRef<HTMLDivElement>(null);
 
   // --- Services State ---
-  const [servicesList, setServicesList] = useState<string[]>([
-    'Web Design',
-    'Social Media Marketing',
-    'SEO Optimization',
-    'App Development',
-    'Copywriting'
-  ]);
+  const [servicesList, setServicesList] = useState<string[]>(() => {
+    const saved = localStorage.getItem('taskpad_services');
+    return saved ? JSON.parse(saved) : ['Web Design', 'Social Media Marketing', 'SEO Optimization', 'App Development', 'Copywriting'];
+  });
   const [selectedService, setSelectedService] = useState('Web Design');
   const [newServiceName, setNewServiceName] = useState('');
   const [showAddServiceInput, setShowAddServiceInput] = useState(false);
+  const [isServiceDropdownOpen, setIsServiceDropdownOpen] = useState(false);
+  const serviceRef = useRef<HTMLDivElement>(null);
 
   // --- Followers State ---
   const followersList = users.map(u => u.name);
@@ -149,6 +152,32 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
   const projectRef = useRef<HTMLDivElement>(null);
   const assigneeRef = useRef<HTMLDivElement>(null);
 
+  // Persist clients and services to localStorage
+  useEffect(() => {
+    localStorage.setItem('taskpad_clients', JSON.stringify(clientsList));
+  }, [clientsList]);
+  
+  useEffect(() => {
+    localStorage.setItem('taskpad_services', JSON.stringify(servicesList));
+  }, [servicesList]);
+
+  // Delete handlers
+  const handleDeleteClient = (clientName: string) => {
+    setClientsList(prev => prev.filter(c => c !== clientName));
+    if (selectedClient === clientName) {
+      setSelectedClient(clientsList[0] || '');
+    }
+    addActivity(`Deleted client worksite: ${clientName}`);
+  };
+
+  const handleDeleteService = (serviceName: string) => {
+    setServicesList(prev => prev.filter(s => s !== serviceName));
+    if (selectedService === serviceName) {
+      setSelectedService(servicesList[0] || '');
+    }
+    addActivity(`Deleted associated service: ${serviceName}`);
+  };
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (projectRef.current && !projectRef.current.contains(event.target as Node)) {
@@ -156,6 +185,12 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
       }
       if (assigneeRef.current && !assigneeRef.current.contains(event.target as Node)) {
         setIsAssigneeDropdownOpen(false);
+      }
+      if (clientRef.current && !clientRef.current.contains(event.target as Node)) {
+        setIsClientDropdownOpen(false);
+      }
+      if (serviceRef.current && !serviceRef.current.contains(event.target as Node)) {
+        setIsServiceDropdownOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -453,6 +488,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
       project: selectedProjects.length > 0 ? selectedProjects[0] : 'Net Access Internet',
       projects: selectedProjects,
       priority,
+      startDate,
       dueDate,
       time: displayTime,
       assignTo: selectedAssignees.length > 0 ? selectedAssignees[0] : 'Krishna Lokhande',
@@ -467,18 +503,19 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
       comments,
       timeLogs: timeLogs.map(l => ({ id: l.id, user: l.user, duration: l.duration, date: l.date })),
       isDraft: isDraftFlag,
-      // Recurring features
       isRecurring,
-      recurrence: isRecurring ? {
-        repeatType,
-        repeatEvery,
-        weekdays: repeatType === 'Weekly' ? selectedWeekdays : undefined,
-        repeatOn: repeatType === 'Monthly' ? repeatOn : undefined,
-        customRule: repeatType === 'Custom' ? customRule : undefined,
-        endOption,
-        endDate: endOption === 'On Date' ? recurrenceEndDate : undefined,
-        occurrences: endOption === 'After Occurrences' ? occurrences : undefined,
-      } : undefined,
+      recurrence: isRecurring
+        ? {
+            repeatType,
+            repeatEvery,
+            weekdays: repeatType === 'Weekly' ? selectedWeekdays : undefined,
+            repeatOn: repeatType === 'Monthly' ? repeatOn : undefined,
+            customRule: repeatType === 'Custom' ? customRule : undefined,
+            endOption,
+            endDate: endOption === 'On Date' ? recurrenceEndDate : undefined,
+            occurrences: endOption === 'After Occurrences' ? occurrences : undefined,
+          }
+        : undefined,
       startTime: startTime.trim() || undefined,
       endTime: endTime.trim() || undefined,
       reminderBefore: startTime.trim() ? reminderBefore : undefined,
@@ -872,8 +909,8 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
 
             {/* Client & Service options */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Client Selection with Add inline */}
-              <div className="space-y-1.5">
+              {/* Client Selection with Add/Delete inline */}
+              <div className="space-y-1.5 relative" ref={clientRef}>
                 <div className="flex justify-between items-center">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                     <Briefcase className="w-3.5 h-3.5 text-cyan-400" />
@@ -918,29 +955,61 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
                     </button>
                   </form>
                 ) : (
-                  <select
-                    value={selectedClient}
-                    onChange={(e) => {
-                      setSelectedClient(e.target.value);
-                      addActivity(`Client changed to: ${e.target.value}`);
-                    }}
-                    className={`w-full text-xs px-3.5 py-2.5 rounded-xl border outline-none transition focus:ring-2 focus:ring-cyan-400 ${
-                      theme === 'dark'
-                        ? 'bg-[#0D1631] border-slate-700 text-slate-200'
-                        : 'bg-slate-50 border-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {clientsList.map((cl) => (
-                      <option key={cl} value={cl}>
-                        {cl}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    <div
+                      onClick={() => setIsClientDropdownOpen(!isClientDropdownOpen)}
+                      className={`w-full min-h-[38px] text-xs px-3 py-2 rounded-xl border flex items-center justify-between cursor-pointer transition focus:ring-2 focus:ring-cyan-400 ${
+                        theme === 'dark'
+                          ? 'bg-[#0D1631] border-slate-700 text-slate-200'
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <span>{selectedClient || "Select client..."}</span>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                    </div>
+
+                    {isClientDropdownOpen && (
+                      <div
+                        className={`absolute z-40 left-0 right-0 mt-1 rounded-xl shadow-2xl border p-3 flex flex-col gap-2 max-h-48 overflow-y-auto ${
+                          theme === 'dark'
+                            ? 'bg-[#141C38] border-slate-800 text-slate-100'
+                            : 'bg-white border-slate-200 text-slate-800'
+                        }`}
+                      >
+                        {clientsList.map((cl) => (
+                          <div key={cl} className="flex items-center justify-between gap-2 group">
+                            <div
+                              onClick={() => {
+                                setSelectedClient(cl);
+                                addActivity(`Client changed to: ${cl}`);
+                                setIsClientDropdownOpen(false);
+                              }}
+                              className={`flex-1 text-xs px-2 py-1 rounded-lg cursor-pointer hover:bg-slate-800/30 ${
+                                selectedClient === cl ? 'text-cyan-400 font-medium' : ''
+                              }`}
+                            >
+                              {cl}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteClient(cl);
+                              }}
+                              className="p-1 rounded-lg text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
-              {/* Service Selection with Add inline */}
-              <div className="space-y-1.5">
+              {/* Service Selection with Add/Delete inline */}
+              <div className="space-y-1.5 relative" ref={serviceRef}>
                 <div className="flex justify-between items-center">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                     <Users className="w-3.5 h-3.5 text-cyan-400" />
@@ -985,30 +1054,62 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
                     </button>
                   </form>
                 ) : (
-                  <select
-                    value={selectedService}
-                    onChange={(e) => {
-                      setSelectedService(e.target.value);
-                      addActivity(`Associated service updated: ${e.target.value}`);
-                    }}
-                    className={`w-full text-xs px-3.5 py-2.5 rounded-xl border outline-none transition focus:ring-2 focus:ring-cyan-400 ${
-                      theme === 'dark'
-                        ? 'bg-[#0D1631] border-slate-700 text-slate-200'
-                        : 'bg-slate-50 border-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {servicesList.map((sv) => (
-                      <option key={sv} value={sv}>
-                        {sv}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    <div
+                      onClick={() => setIsServiceDropdownOpen(!isServiceDropdownOpen)}
+                      className={`w-full min-h-[38px] text-xs px-3 py-2 rounded-xl border flex items-center justify-between cursor-pointer transition focus:ring-2 focus:ring-cyan-400 ${
+                        theme === 'dark'
+                          ? 'bg-[#0D1631] border-slate-700 text-slate-200'
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <span>{selectedService || "Select service..."}</span>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                    </div>
+
+                    {isServiceDropdownOpen && (
+                      <div
+                        className={`absolute z-40 left-0 right-0 mt-1 rounded-xl shadow-2xl border p-3 flex flex-col gap-2 max-h-48 overflow-y-auto ${
+                          theme === 'dark'
+                            ? 'bg-[#141C38] border-slate-800 text-slate-100'
+                            : 'bg-white border-slate-200 text-slate-800'
+                        }`}
+                      >
+                        {servicesList.map((sv) => (
+                          <div key={sv} className="flex items-center justify-between gap-2 group">
+                            <div
+                              onClick={() => {
+                                setSelectedService(sv);
+                                addActivity(`Associated service updated: ${sv}`);
+                                setIsServiceDropdownOpen(false);
+                              }}
+                              className={`flex-1 text-xs px-2 py-1 rounded-lg cursor-pointer hover:bg-slate-800/30 ${
+                                selectedService === sv ? 'text-cyan-400 font-medium' : ''
+                              }`}
+                            >
+                              {sv}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteService(sv);
+                              }}
+                              className="p-1 rounded-lg text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
 
-            {/* Priority, Status, Due Date, Followers */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* Priority, Status, Start Date, Due Date, Followers */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               {/* Priority */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Priority</label>
@@ -1050,9 +1151,29 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
                   <option value="Completed">Completed</option>
                   <option value="In Progress">In Progress</option>
                   <option value="Under Review">Under Review</option>
+                  <option value="Approved">Approved</option>
                   <option value="Rejected">Rejected</option>
                   <option value="Incomplete">Incomplete</option>
                 </select>
+              </div>
+
+              {/* Start Date */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Start Date</label>
+                <input
+                  type="date"
+                  required
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    addActivity(`Start date set: ${e.target.value}`);
+                  }}
+                  className={`w-full text-xs px-3 py-2 rounded-xl border outline-none ${
+                    theme === 'dark'
+                      ? 'bg-[#0D1631] border-slate-700 text-slate-200'
+                      : 'bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                />
               </div>
 
               {/* Due Date */}

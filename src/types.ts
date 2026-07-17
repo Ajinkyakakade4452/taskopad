@@ -1,5 +1,5 @@
 export type Priority = 'Low' | 'Medium' | 'High' | 'Critical';
-export type TaskStatus = 'Pending' | 'Completed' | 'In Progress' | 'Under Review' | 'Rejected' | 'Incomplete';
+export type TaskStatus = 'Pending' | 'Completed' | 'In Progress' | 'Under Review' | 'Rejected' | 'Incomplete' | 'Approved';
 
 export interface Task {
   id: string;
@@ -8,6 +8,7 @@ export interface Task {
   project: string;
   projects?: string[]; // For multi-select projects
   priority: Priority;
+  startDate: string; // YYYY-MM-DD
   dueDate: string; // YYYY-MM-DD
   time?: string; // e.g. "11:00 AM - 12:30 PM"
   assignTo: string; // Main assignee Name
