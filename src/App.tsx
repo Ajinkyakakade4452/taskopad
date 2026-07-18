@@ -198,7 +198,9 @@ export default function App() {
   };
 
   // ── Task CRUD handlers ────────────────────────────────────────────────────
+
   const handleToggleTaskStatus = async (taskId: string) => {
+
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     const nextStatus: TaskStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
@@ -265,6 +267,26 @@ export default function App() {
     } catch {
       setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
       setSelectedTaskForDetails(updatedTask);
+    }
+  };
+
+  const handleDuplicateTask = async (taskId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}/duplicate`, {
+        method: 'POST',
+      });
+
+      if (!res.ok) return;
+      const duplicated: Task = await res.json();
+
+      setTasks(prev => [duplicated, ...prev]);
+      addNotification({
+        type: 'success',
+        title: 'Task Duplicated',
+        message: `Task "${duplicated.name}" duplicated as Pending`,
+      });
+    } catch {
+      // no-op
     }
   };
 
@@ -503,13 +525,22 @@ export default function App() {
                     </div>
 
                     <StatCards
-                      theme={theme}
-                      tasks={tasks}
-                      user={loggedInUser}
-                      onAddTaskClick={() => setIsAddTaskModalOpen(true)}
-                      onFilterClick={setTaskFilterMode}
-                      activeFilter={taskFilterMode}
-                    />
+                        theme={theme}
+                        tasks={tasks}
+                        user={loggedInUser}
+                        onAddTaskClick={() => setIsAddTaskModalOpen(true)}
+                        onFilterClick={(filter) => {
+                          // When client-approved action is clicked, open the "review" queue
+                          if (filter === 'review') {
+                            setTaskFilterMode('review');
+                            // ensure the table/queue is visible in dashboard context
+                            setActiveView('Dashboard');
+                            return;
+                          }
+                          setTaskFilterMode(filter);
+                        }}
+                        activeFilter={taskFilterMode}
+                      />
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
                       <div className="lg:col-span-8 space-y-8">
@@ -525,6 +556,7 @@ export default function App() {
                           tasks={displayedTableTasks}
                           onToggleStatus={handleToggleTaskStatus}
                           onAddTaskClick={() => setIsAddTaskModalOpen(true)}
+                          onDuplicateTask={(taskId) => handleDuplicateTask(taskId)}
                           onSubmitDraft={handleSubmitDraft}
                           onSelectTask={handleSelectTaskForDetails}
                           onUpdateTaskStatus={handleUpdateTaskStatus}
@@ -577,6 +609,7 @@ export default function App() {
                       tasks={displayedTableTasks}
                       onToggleStatus={handleToggleTaskStatus}
                       onAddTaskClick={() => setIsAddTaskModalOpen(true)}
+                      onDuplicateTask={(taskId) => handleDuplicateTask(taskId)}
                       onSubmitDraft={handleSubmitDraft}
                       onSelectTask={handleSelectTaskForDetails}
                       onUpdateTaskStatus={handleUpdateTaskStatus}

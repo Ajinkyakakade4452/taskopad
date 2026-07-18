@@ -175,7 +175,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
     setNotifications((prev) => prev.filter((x) => x.id !== id));
   };
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'today' | 'overdue' | 'draft'>('today');
+  const [activeTab, setActiveTab] = useState<'today' | 'upcoming' | 'overdue' | 'draft'>('today');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Filter UI state (real working filters)
@@ -351,16 +351,32 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   const todayTasks = tasks.filter(
     (t) => isToday(t.dueDate) || (!isOverdue(t.dueDate) && t.status !== 'Completed')
   );
+  const upcomingTasks = tasks.filter((t) => {
+    if (!t.dueDate) return false;
+    if (t.status === 'Completed') return false;
+    // Upcoming = due date strictly after today (exclude today tasks)
+    const due = parseLocalDateOnly(t.dueDate);
+    if (!due) return false;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    due.setHours(0, 0, 0, 0);
+    return due.getTime() > today.getTime();
+  });
   const overdueTasks = tasks.filter((t) => isOverdue(t.dueDate) && t.status !== 'Completed');
   const draftTasks = tasks.filter((t) => Boolean(t.isDraft));
+
 
   const activeList = (() => {
     let list =
       activeTab === 'today'
         ? todayTasks
-        : activeTab === 'overdue'
-          ? overdueTasks
-          : draftTasks;
+        : activeTab === 'upcoming'
+          ? upcomingTasks
+          : activeTab === 'overdue'
+            ? overdueTasks
+            : draftTasks;
+
 
     // Search filter
     if (searchQuery.trim()) {
@@ -562,6 +578,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
           { key: 'kanban', icon: <Columns className="w-3 h-3" />, label: 'Kanban', active: false },
           { key: 'calendar', icon: <CalendarDays className="w-3 h-3" />, label: 'Calendar', active: false },
         ].map((v) => (
+
           <button
             key={v.key}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
@@ -577,8 +594,9 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
         </div>
       </div>
 
-      {/* Stats Bar */}
+          {/* Stats Bar */}
       <div className="px-6 py-3 border-b border-slate-800/50 bg-[#070F23]/60 flex items-center gap-6 flex-shrink-0">
+
         <button
           onClick={() => setActiveTab('today')}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
@@ -588,9 +606,23 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
           }`}
         >
           <Calendar className="w-3.5 h-3.5" />
-          Today &amp; Future
+          Today
           <span className="px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-[9px] font-bold">{todayTasks.length}</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('upcoming')}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+            activeTab === 'upcoming'
+              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Calendar className="w-3.5 h-3.5" />
+          Upcoming
+          <span className="px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[9px] font-bold">{upcomingTasks.length}</span>
+        </button>
+
 
         <button
           onClick={() => setActiveTab('overdue')}
@@ -1200,9 +1232,21 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
               className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30 hover:bg-slate-800/50 transition text-left"
             >
               <div className="text-[10px] font-bold uppercase text-slate-500">Quick filter</div>
-              <div className="mt-1 text-sm font-extrabold text-cyan-300">Today & Future</div>
+              <div className="mt-1 text-sm font-extrabold text-cyan-300">Today</div>
               <div className="mt-1 text-xs text-slate-400">{todayTasks.length} items</div>
             </button>
+            <button
+              onClick={() => {
+                setActiveView('Tasks');
+                setActiveTab('upcoming');
+              }}
+              className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30 hover:bg-slate-800/50 transition text-left"
+            >
+              <div className="text-[10px] font-bold uppercase text-slate-500">Quick filter</div>
+              <div className="mt-1 text-sm font-extrabold text-blue-300">Upcoming</div>
+              <div className="mt-1 text-xs text-slate-400">{upcomingTasks.length} items</div>
+            </button>
+
             <button
               onClick={() => {
                 setActiveView('Tasks');

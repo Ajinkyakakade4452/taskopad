@@ -7,23 +7,26 @@ interface TaskTableProps {
   tasks: Task[];
   onToggleStatus: (taskId: string) => void;
   onAddTaskClick: () => void;
+  onDuplicateTask?: (taskId: string) => void;
   onSubmitDraft?: (taskId: string) => void;
   onSelectTask?: (task: Task) => void;
   onUpdateTaskStatus?: (taskId: string, status: TaskStatus) => void;
   isSubtaskFilterMode?: boolean;
 }
 
+
 export default function TaskTable({ 
   theme, 
   tasks, 
   onToggleStatus, 
   onAddTaskClick, 
+  onDuplicateTask,
   onSubmitDraft,
   onSelectTask,
   onUpdateTaskStatus,
   isSubtaskFilterMode = false
 }: TaskTableProps) {
-  const [activeGroupTab, setActiveGroupTab] = useState<'today' | 'overdue' | 'review' | 'drafts'>('today');
+  const [activeGroupTab, setActiveGroupTab] = useState<'today' | 'upcoming' | 'overdue' | 'review' | 'drafts'>('today');
   // ids of tasks currently showing tick animation
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   // ids of tasks currently fading out
@@ -59,6 +62,13 @@ export default function TaskTable({
     !t.isDraft && t.dueDate >= today &&
     (t.status !== 'Completed' || completingIds.has(t.id) || fadingIds.has(t.id))
   );
+
+  const upcomingTasks = allTasks.filter(t => {
+    if (t.isDraft) return false;
+    if (t.status === 'Completed' && !completingIds.has(t.id) && !fadingIds.has(t.id)) return false;
+    return !!t.dueDate && t.dueDate > today;
+  });
+
   const overdueTasks = allTasks.filter(t =>
     !t.isDraft && t.dueDate < today &&
     (t.status !== 'Completed' || completingIds.has(t.id) || fadingIds.has(t.id))
@@ -73,6 +83,8 @@ export default function TaskTable({
     ? allTasks // Show all pseudo-subtasks when in subtask mode
     : activeGroupTab === 'today'
     ? todayTasks
+    : activeGroupTab === 'upcoming'
+    ? upcomingTasks
     : activeGroupTab === 'overdue'
     ? overdueTasks
     : activeGroupTab === 'review'
@@ -160,6 +172,28 @@ export default function TaskTable({
                 : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
             }`}>
               {todayTasks.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveGroupTab('upcoming')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeGroupTab === 'upcoming'
+                ? theme === 'dark'
+                  ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                  : 'bg-blue-500 text-white shadow-sm'
+                : theme === 'dark'
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <span>📅 Upcoming</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+              activeGroupTab === 'upcoming'
+                ? theme === 'dark' ? 'bg-blue-400/20 text-blue-300' : 'bg-white/20 text-white'
+                : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+            }`}>
+              {upcomingTasks.length}
             </span>
           </button>
 
@@ -485,7 +519,7 @@ export default function TaskTable({
                         </button>
                       </div>
                     ) : (
-                      <select
+                    <select
                         value={task.status}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
@@ -516,10 +550,30 @@ export default function TaskTable({
                         <option value="Incomplete" className={theme === 'dark' ? 'bg-[#141C38] text-slate-200' : 'bg-white text-slate-800'}>Incomplete</option>
                       </select>
                     )}
+
+                    {/* Duplicate action */}
+                    {onDuplicateTask && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isCompleting || isFading) return;
+                          onDuplicateTask(task.id);
+                        }}
+                        title="Duplicate task (creates new Pending task)"
+                        className={`ml-2 text-[9px] font-extrabold px-2 py-1 rounded-lg border transition cursor-pointer ${
+                          theme === 'dark'
+                            ? 'bg-slate-800/30 text-slate-300 border-slate-700/50 hover:bg-slate-800/60 hover:text-white'
+                            : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                      >
+                        Duplicate
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
             }))}
+
           </tbody>
         </table>
       </div>

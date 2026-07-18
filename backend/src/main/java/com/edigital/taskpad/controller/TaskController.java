@@ -332,6 +332,75 @@ public class TaskController {
         return ResponseEntity.ok(saved);
     }
 
+    @PostMapping("/{taskId}/duplicate")
+    public ResponseEntity<Task> duplicateTask(@PathVariable String taskId) {
+        Optional<Task> optionalTask = taskRepository.findById(taskId);
+        if (optionalTask.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Task src = optionalTask.get();
+        Task duplicated = new Task();
+
+        // Generate new top-level id
+        duplicated.setId("task-" + System.currentTimeMillis() + "-dup");
+
+        // Copy simple fields
+        duplicated.setName(src.getName());
+        duplicated.setDescription(src.getDescription());
+        duplicated.setProject(src.getProject());
+        duplicated.setProjects(src.getProjects());
+        duplicated.setPriority(src.getPriority());
+        duplicated.setDueDate(src.getDueDate()); // keep same
+        duplicated.setTime(src.getTime());
+        duplicated.setAssignTo(src.getAssignTo());
+        duplicated.setAssignees(src.getAssignees());
+
+        // Override status
+        duplicated.setStatus("Pending");
+
+        duplicated.setClient(src.getClient());
+        duplicated.setService(src.getService());
+        duplicated.setFollower(src.getFollower());
+        duplicated.setDocuments(src.getDocuments());
+
+        // Deep copy nested lists (regenerate nested ids where applicable)
+        if (src.getSubTasks() != null) {
+            List<com.edigital.taskpad.model.SubTask> copied = new ArrayList<>();
+            int i = 0;
+            for (com.edigital.taskpad.model.SubTask st : src.getSubTasks()) {
+                if (st == null) continue;
+                com.edigital.taskpad.model.SubTask next = new com.edigital.taskpad.model.SubTask();
+                next.setId((st.getId() == null || st.getId().isEmpty())
+                        ? null
+                        : st.getId() + "-dup-" + System.currentTimeMillis() + "-" + i);
+                next.setName(st.getName());
+                next.setCompleted(st.isCompleted());
+                // reset workflow approval gates for duplicate so it can go through review again
+                next.setApprovedByAdmin(false);
+                next.setApprovedByAdminAt(null);
+                copied.add(next);
+                i++;
+            }
+            duplicated.setSubTasks(copied);
+        }
+
+        duplicated.setChecklist(src.getChecklist() != null ? new ArrayList<>(src.getChecklist()) : null);
+        duplicated.setComments(src.getComments() != null ? new ArrayList<>(src.getComments()) : null);
+        duplicated.setTimeLogs(src.getTimeLogs() != null ? new ArrayList<>(src.getTimeLogs()) : null);
+
+        // Copy flags + recurrence/time fields
+        duplicated.setIsDraft(src.getIsDraft());
+        duplicated.setIsRecurring(src.getIsRecurring());
+        duplicated.setRecurrence(src.getRecurrence());
+        duplicated.setStartTime(src.getStartTime());
+        duplicated.setEndTime(src.getEndTime());
+        duplicated.setReminderBefore(src.getReminderBefore());
+
+        Task saved = taskRepository.save(duplicated);
+        return ResponseEntity.ok(saved);
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTask(@PathVariable String id) {
         if (taskRepository.existsById(id)) {
