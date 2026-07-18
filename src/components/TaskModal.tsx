@@ -29,9 +29,10 @@ interface TaskModalProps {
   onClose: () => void;
   onSave: (task: Omit<Task, 'id'>) => void;
   users: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string }[];
+  loggedInUser?: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string; token: string };
 }
 
-export default function TaskModal({ theme, isOpen, onClose, onSave, users }: TaskModalProps) {
+export default function TaskModal({ theme, isOpen, onClose, onSave, users, loggedInUser }: TaskModalProps) {
   // --- Core State Variables ---
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -119,8 +120,10 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Sub Tasks State ---
-  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean; assignTo?: string }[]>([]);
+  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean; assignTo?: string; comments?: { id: string; author: string; text: string; date: string }[] }[]>([]);
   const [newSubTaskName, setNewSubTaskName] = useState('');
+  const [subtaskExpandedId, setSubtaskExpandedId] = useState<string | null>(null);
+  const [subtaskNewComment, setSubtaskNewComment] = useState('');
 
   // --- Checklist State ---
   const [checklist, setChecklist] = useState<{ id: string; name: string; checked: boolean }[]>([]);
@@ -199,19 +202,36 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
     };
   }, []);
 
-  if (!isOpen) return null;
-
   // Logger helper to add action entries
   const addActivity = (text: string) => {
     const newAct = {
       id: `act-${Date.now()}`,
       text,
-      date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
     setActivityLogs((prev) => [newAct, ...prev]);
   };
 
+  const [documentsMandatory, setDocumentsMandatory] = useState<boolean>(false); // Global setting from admin
+  const [perTaskDocumentsMandatory, setPerTaskDocumentsMandatory] = useState<boolean>(false); // Per-task setting
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    (async () => {
+      try {
+        const res = await fetch('/api/tasks/admin/documents-mandatory');
+        if (!res.ok) return;
+        const data = await res.json();
+        setDocumentsMandatory(!!data?.mandatory);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [isOpen]);
+
   // --- Projects Dropdown Handlers ---
+
   const handleToggleProject = (proj: string) => {
     if (selectedProjects.includes(proj)) {
       setSelectedProjects((prev) => prev.filter((p) => p !== proj));
@@ -326,12 +346,40 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
       const newSub = {
         id: `sub-${Date.now()}`,
         name: newSubTaskName.trim(),
-        completed: false
+        completed: false,
+        comments: []
       };
       setSubTasks((prev) => [...prev, newSub]);
       addActivity(`Added sub task: "${newSubTaskName.trim()}"`);
       setNewSubTaskName('');
     }
+  };
+  
+  // Toggle expanding subtask comments in TaskModal
+  const toggleModalSubtaskComments = (id: string) => {
+    setSubtaskExpandedId(subtaskExpandedId === id ? null : id);
+    setSubtaskNewComment('');
+  };
+  
+  // Add comment to subtask in TaskModal
+  const addModalSubtaskComment = (e: React.FormEvent, id: string) => {
+    e.preventDefault();
+    if (!subtaskNewComment.trim()) return;
+    
+    const updatedSubTasks = subTasks.map(st => {
+      if (st.id === id) {
+        const newComment = {
+          id: `sub-comment-${Date.now()}`,
+          author: loggedInUser?.name || 'Unknown',
+          text: subtaskNewComment.trim(),
+          date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        return { ...st, comments: [...(st.comments || []), newComment] };
+      }
+      return st;
+    });
+    setSubTasks(updatedSubTasks);
+    setSubtaskNewComment('');
   };
 
   const handleToggleSubTask = (id: string) => {
@@ -427,6 +475,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
     }
   };
 
+
   // --- Submit / Reset / Save Handlers ---
   const handleSaveSubmit = (e: React.FormEvent, isDraftFlag: boolean = false) => {
     e.preventDefault();
@@ -435,11 +484,18 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
       return;
     }
 
+
     if (!isDraftFlag) {
+      if (loggedInUser?.role !== 'admin' && (documentsMandatory || perTaskDocumentsMandatory) && (!uploadedDocuments || uploadedDocuments.length === 0)) {
+              setError('Documents are mandatory. Please attach at least one document before submitting.');
+              return;
+            }
+
       if (!dueDate) {
         setError('Due Date (Start Date) is required.');
         return;
       }
+
       if (!status) {
         setError('Status is required.');
         return;
@@ -504,6 +560,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
       timeLogs: timeLogs.map(l => ({ id: l.id, user: l.user, duration: l.duration, date: l.date })),
       isDraft: isDraftFlag,
       isRecurring,
+      documentsMandatory: perTaskDocumentsMandatory, // Save per‑task setting
       recurrence: isRecurring
         ? {
             repeatType,
@@ -1305,6 +1362,23 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
                   Recurring Task
                 </label>
               </div>
+              {loggedInUser?.role === 'admin' && (
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-800/10">
+                  <input
+                    type="checkbox"
+                    id="per-task-documents-mandatory"
+                    checked={perTaskDocumentsMandatory}
+                    onChange={(e) => {
+                      setPerTaskDocumentsMandatory(e.target.checked);
+                      addActivity(`Per-task documents mandatory turned ${e.target.checked ? 'ON' : 'OFF'}`);
+                    }}
+                    className="w-4 h-4 rounded text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500 accent-emerald-500"
+                  />
+                  <label htmlFor="per-task-documents-mandatory" className="text-xs font-bold text-slate-300 cursor-pointer select-none">
+                    Documents Mandatory for this Task
+                  </label>
+                </div>
+              )}
 
               {/* Recurrence Settings (Only if isRecurring is ON) */}
               {isRecurring && (
@@ -1534,39 +1608,96 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users }: Tas
               {subTasks.length > 0 && (
                 <div className="space-y-1.5 pr-1">
                   {subTasks.map((sub) => (
-                    <div key={sub.id} className="flex items-center justify-between bg-slate-900/30 px-2 py-1.5 rounded-lg border border-slate-800/10">
-                      <div className="flex items-center gap-2 flex-1">
-                        <input
-                          type="checkbox"
-                          checked={sub.completed}
-                          onChange={() => handleToggleSubTask(sub.id)}
-                          className="accent-cyan-500 flex-shrink-0"
-                        />
-                        <span className={`text-[11px] truncate flex-1 ${sub.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
-                          {sub.name}
-                        </span>
+                    <div key={sub.id} className="rounded-lg border border-slate-800/10 overflow-hidden bg-slate-900/30">
+                      <div className="flex items-center justify-between px-2 py-1.5">
+                        <div className="flex items-center gap-2 flex-1">
+                          <input
+                            type="checkbox"
+                            checked={sub.completed}
+                            onChange={() => handleToggleSubTask(sub.id)}
+                            className="accent-cyan-500 flex-shrink-0"
+                          />
+                          <span className={`text-[11px] truncate flex-1 ${sub.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
+                            {sub.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleModalSubtaskComments(sub.id)}
+                            className="text-slate-400 hover:text-cyan-400"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </button>
+                          <select
+                            value={sub.assignTo || ''}
+                            onChange={(e) => handleAssignSubTask(sub.id, e.target.value)}
+                            className={`text-[10px] px-1 py-0.5 rounded border outline-none ${
+                              theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                            }`}
+                          >
+                            <option value="">Unassigned</option>
+                            {users.map(u => (
+                              <option key={u.name} value={u.name}>{u.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSubTask(sub.id, sub.name)}
+                            className="text-slate-500 hover:text-red-400"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={sub.assignTo || ''}
-                          onChange={(e) => handleAssignSubTask(sub.id, e.target.value)}
-                          className={`text-[10px] px-1 py-0.5 rounded border outline-none ${
-                            theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
-                          }`}
-                        >
-                          <option value="">Unassigned</option>
-                          {users.map(u => (
-                            <option key={u.name} value={u.name}>{u.name}</option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSubTask(sub.id, sub.name)}
-                          className="text-slate-500 hover:text-red-400"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      
+                      {/* Expanded comments for this subtask in TaskModal */}
+                      {subtaskExpandedId === sub.id && (
+                        <div className="border-t border-slate-700/30 px-2 pb-2 pt-2 space-y-2">
+                          {/* Existing comments */}
+                          {(sub.comments || []).length > 0 && (
+                            <div className="space-y-1">
+                              {(sub.comments || []).map(comment => (
+                                <div key={comment.id} className="space-y-0.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[9px] font-bold text-cyan-400">{comment.author}</span>
+                                    <span className="text-[8px] font-mono text-slate-500">{comment.date}</span>
+                                  </div>
+                                  <p className={`text-[10px] px-1.5 py-1 rounded border leading-relaxed ${
+                                    theme === 'dark' ? 'bg-slate-900 border-slate-700/30 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                                  }`}>
+                                    {comment.text}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {/* Add new comment form */}
+                          <form onSubmit={(e) => addModalSubtaskComment(e, sub.id)} className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Add a comment..."
+                              value={subtaskNewComment}
+                              onChange={(e) => setSubtaskNewComment(e.target.value)}
+                              className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${
+                                theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-200 text-slate-800'
+                              }`}
+                            />
+                            <button
+                              type="submit"
+                              disabled={!subtaskNewComment.trim()}
+                              className={`text-[10px] px-2 py-1 rounded border ${
+                                subtaskNewComment.trim() 
+                                  ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' 
+                                  : 'bg-slate-700/20 text-slate-500 border-slate-700/30 cursor-not-allowed'
+                              }`}
+                            >
+                              Send
+                            </button>
+                          </form>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -715,6 +715,7 @@ case 'Projects':
         onClose={() => setIsAddTaskModalOpen(false)}
         onSave={handleAddTask}
         users={users}
+        loggedInUser={loggedInUser}
       />
 
       {/* Task Details Panel */}
@@ -725,6 +726,7 @@ case 'Projects':
         onClose={() => setIsDetailsPanelOpen(false)}
         onSave={handleSaveTaskDetails}
         users={users}
+        loggedInUser={loggedInUser}
       />
 
     </div>

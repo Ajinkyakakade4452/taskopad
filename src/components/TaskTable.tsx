@@ -475,12 +475,16 @@ export default function TaskTable({
                   </td>
 
                   {/* Status Column */}
-                  <td className="px-5 py-4 text-center">
+              <td className="px-5 py-4 text-center">
                     {task.isDraft ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          onSubmitDraft?.(task.id);
+                          try {
+                            onSubmitDraft?.(task.id);
+                          } catch (err) {
+                            console.error('onSubmitDraft failed', err);
+                          }
                         }}
                         className="text-[9px] font-extrabold uppercase tracking-widest px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/35 border border-emerald-500/30 transition transform active:scale-95 flex items-center gap-1 mx-auto cursor-pointer"
                         title="Submit task to active queue"

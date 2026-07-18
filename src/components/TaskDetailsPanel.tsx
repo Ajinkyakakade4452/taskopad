@@ -10,17 +10,17 @@ import {
 import { Task, Priority, TaskStatus } from '../types';
 
 interface TaskDetailsPanelProps {
-
   theme: 'light' | 'dark';
   isOpen: boolean;
   task: Task | null;
   onClose: () => void;
   onSave: (updatedTask: Task) => void;
   users: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string }[];
+  loggedInUser?: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string; token: string };
 }
 
 
-export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave, users }: TaskDetailsPanelProps) {
+export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave, users, loggedInUser }: TaskDetailsPanelProps) {
   // Local edit states
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState('');
@@ -31,6 +31,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   const [selectedProject, setSelectedProject] = useState('');
   const [assignTo, setAssignTo] = useState('');
   const [subtaskWarning, setSubtaskWarning] = useState(false); // gate warning flag
+  const [perTaskDocumentsMandatory, setPerTaskDocumentsMandatory] = useState<boolean>(false); // per-task setting
+  const [globalDocumentsMandatory, setGlobalDocumentsMandatory] = useState<boolean>(false); // global setting
 
   // Local state for interactive features (comments, subtasks, checklist, attachments, timelogs)
   const [subTasks, setSubTasks] = useState<{
@@ -53,6 +55,10 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   const [newTimeDuration, setNewTimeDuration] = useState('');
   const [newTimeUser, setNewTimeUser] = useState('');
   const [newAttachmentName, setNewAttachmentName] = useState('');
+  
+  // Subtask comments state
+  const [expandedSubtaskId, setExpandedSubtaskId] = useState<string | null>(null); // Which subtask's comments are expanded
+  const [subtaskNewCommentText, setSubtaskNewCommentText] = useState(''); // Text for new comment on current subtask
 
   // Dropdown list options
   const projectsList = [
@@ -86,13 +92,14 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       setPriority(task.priority);
       setSelectedProject(task.project || (task.projects && task.projects[0]) || 'Om Associates');
       setAssignTo(task.assignTo);
+      setPerTaskDocumentsMandatory(task.documentsMandatory || false);
 
       // Populate interactive elements or supply high-fidelity mock data if undefined
-      const initialSubTasks = task.subTasks || [
+      const initialSubTasks = (task.subTasks || [
         { id: 'sub-1', name: 'Draft requirements alignment', completed: true },
         { id: 'sub-2', name: 'Develop proof-of-concept visual', completed: false },
         { id: 'sub-3', name: 'Submit for stakeholder approval', completed: false }
-      ];
+      ]).map(st => ({ ...st, comments: st.comments || [] })); // Make sure every subtask has a comments array
       setSubTasks(initialSubTasks);
 
       const initialChecklist = task.checklist || [
@@ -125,6 +132,19 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       setActivityLogs(initialActivity);
 
       setIsEditing(false);
+
+      // Fetch global documents mandatory setting
+      (async () => {
+        try {
+          const res = await fetch('/api/tasks/admin/documents-mandatory');
+          if (res.ok) {
+            const data = await res.json();
+            setGlobalDocumentsMandatory(!!data.mandatory);
+          }
+        } catch {
+          // ignore
+        }
+      })();
     }
   }, [task, isOpen]);
 
@@ -141,6 +161,14 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
         return;
       }
     }
+
+    // Gate: check if documents are required (only for non-admins)
+    const needsDocuments = globalDocumentsMandatory || perTaskDocumentsMandatory;
+    if (loggedInUser?.role !== 'admin' && needsDocuments && (!attachments || attachments.length === 0)) {
+      alert('Documents are mandatory for this task!');
+      return;
+    }
+
     setSubtaskWarning(false);
     const updatedTask: Task = {
       ...task,
@@ -158,6 +186,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       comments,
       timeLogs,
       documents: attachments,
+      documentsMandatory: perTaskDocumentsMandatory,
     };
     onSave(updatedTask);
     setIsEditing(false);
@@ -267,7 +296,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
     const newSub = {
       id: `sub-${Date.now()}`,
       name: newSubTaskName.trim(),
-      completed: false
+      completed: false,
+      comments: [] // Initialize with empty comments array
     };
     const updated = [...subTasks, newSub];
     setSubTasks(updated);
@@ -405,6 +435,47 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       date: new Date().toLocaleString()
     };
     setActivityLogs(prev => [newActLog, ...prev]);
+  };
+
+  // Toggle expanding a subtask's comments
+  const toggleSubtaskComments = (subtaskId: string) => {
+    setExpandedSubtaskId(expandedSubtaskId === subtaskId ? null : subtaskId);
+    setSubtaskNewCommentText(''); // Reset comment input when toggling
+  };
+
+  // Add comment to a specific subtask
+  const handleAddSubtaskComment = (e: React.FormEvent, subtaskId: string) => {
+    e.preventDefault();
+    if (!subtaskNewCommentText.trim()) return;
+
+    const updatedSubtasks = subTasks.map(st => {
+      if (st.id === subtaskId) {
+        const newComment = {
+          id: `sub-comment-${Date.now()}`,
+          author: loggedInUser?.name || 'Unknown User',
+          text: subtaskNewCommentText.trim(),
+          date: new Date().toLocaleString()
+        };
+        return {
+          ...st,
+          comments: [...(st.comments || []), newComment]
+        };
+      }
+      return st;
+    });
+    setSubTasks(updatedSubtasks);
+    setSubtaskNewCommentText('');
+
+    // Save state instantly to App
+    const updatedTask: Task = {
+      ...task,
+      subTasks: updatedSubtasks,
+      checklist,
+      comments,
+      timeLogs,
+      documents: attachments,
+    };
+    onSave(updatedTask);
   };
 
   return (
@@ -671,10 +742,13 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                   </select>
                   {/* Subtask gate warning — shown when saving blocked */}
                   {subtaskWarning && (status === 'Completed' || status === 'Approved') && (() => {
-                    const pending = subTasks.filter(st => !st.completed);
-                    const unapproved = subTasks.filter(st => st.approvedByAdmin !== true);
+                    const safeSubTasks = Array.isArray(subTasks) ? subTasks : [];
+                    const pending = safeSubTasks.filter(st => !st.completed);
+                    const unapproved = safeSubTasks.filter(st => st.approvedByAdmin !== true);
                     const hasIssues = pending.length > 0 || unapproved.length > 0;
-                    return hasIssues ? (
+                    if (!hasIssues) return null;
+
+                    return (
                       <div className="flex items-start gap-2 mt-2 px-3 py-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10">
                         <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-400" />
                         <div>
@@ -695,7 +769,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                           </ul>
                         </div>
                       </div>
-                    ) : null;
+                    );
                   })()}
                 </>
               ) : (
@@ -745,6 +819,28 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
             )}
           </div>
 
+          {/* Documents Required (Admin Only) */}
+          {loggedInUser?.role === 'admin' && isEditing && (
+            <div className="space-y-1 pt-2 border-t border-slate-800/10">
+              <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">Documents Mandatory</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="task-detail-doc-mandatory"
+                  checked={perTaskDocumentsMandatory}
+                  onChange={(e) => setPerTaskDocumentsMandatory(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500 accent-emerald-500"
+                />
+                <label
+                  htmlFor="task-detail-doc-mandatory"
+                  className="text-xs font-bold text-slate-300 cursor-pointer select-none"
+                >
+                  Require documents for user submissions
+                </label>
+              </div>
+            </div>
+          )}
+
           {/* 12. Sub Tasks */}
           <div className="space-y-3 pt-2 border-t border-slate-800/10">
             <div className="flex items-center justify-between">
@@ -778,34 +874,95 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               {subTasks.map(st => (
                 <div 
                   key={st.id} 
-                  className={`flex items-center gap-3 p-2.5 rounded-xl border transition ${
+                  className={`rounded-xl border transition overflow-hidden ${
                     theme === 'dark' ? 'border-slate-800/50 bg-[#141C38]/40 hover:bg-[#141C38]/70' : 'border-slate-100 bg-slate-50 hover:bg-slate-100/50'
                   }`}
                 >
-                  <button
-                    onClick={() => toggleSubTask(st.id)}
-                    className={`p-0.5 rounded-md hover:bg-slate-800/10 transition cursor-pointer`}
-                  >
-                    {st.completed ? (
-                      <CheckSquare className="w-4.5 h-4.5 text-cyan-500" />
-                    ) : (
-                      <Square className="w-4.5 h-4.5 text-slate-400 hover:text-cyan-400" />
-                    )}
-                  </button>
-                  <span className={`text-xs font-medium transition flex-1 ${st.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
-                    {st.name}
-                  </span>
-                  {st.approvedByAdmin ? (
-                    <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                      Approved
-                    </span>
-                  ) : (
+                  {/* Subtask main row */}
+                  <div className="flex items-center gap-3 p-2.5">
                     <button
-                      onClick={() => approveSubTask(st.id)}
-                      className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer"
+                      onClick={() => toggleSubTask(st.id)}
+                      className={`p-0.5 rounded-md hover:bg-slate-800/10 transition cursor-pointer`}
                     >
-                      Approve
+                      {st.completed ? (
+                        <CheckSquare className="w-4.5 h-4.5 text-cyan-500" />
+                      ) : (
+                        <Square className="w-4.5 h-4.5 text-slate-400 hover:text-cyan-400" />
+                      )}
                     </button>
+                    <span className={`text-xs font-medium transition flex-1 ${st.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
+                      {st.name}
+                    </span>
+                    {/* Comment toggle button */}
+                    <button
+                      type="button"
+                      onClick={() => toggleSubtaskComments(st.id)}
+                      className="p-1 rounded-md text-slate-400 hover:text-cyan-400 hover:bg-slate-800/20 transition"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </button>
+                    {st.approvedByAdmin ? (
+                      <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                        Approved
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => approveSubTask(st.id)}
+                        className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer"
+                      >
+                        Approve
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Expanded comments section */}
+                  {expandedSubtaskId === st.id && (
+                    <div className="px-4 pb-4 space-y-2 border-t border-slate-700/30">
+                      {/* Existing comments */}
+                      {(st.comments || []).length > 0 ? (
+                        <div className="space-y-1.5 pt-2">
+                          {(st.comments || []).map(comment => (
+                            <div key={comment.id} className="space-y-0.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-cyan-400">{comment.author}</span>
+                                <span className="text-[9px] text-slate-500 font-mono">{comment.date}</span>
+                              </div>
+                              <p className={`text-xs px-2.5 py-1 rounded-lg border leading-relaxed ${
+                                theme === 'dark' 
+                                  ? 'bg-slate-900/50 border-slate-700/30 text-slate-300' 
+                                  : 'bg-slate-100 border-slate-200 text-slate-700'
+                              }`}>
+                                {comment.text}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500 pt-2">No comments yet.</p>
+                      )}
+                      
+                      {/* Add new comment form */}
+                      <form onSubmit={(e) => handleAddSubtaskComment(e, st.id)} className="flex gap-2 pt-2">
+                        <input
+                          type="text"
+                          value={subtaskNewCommentText}
+                          onChange={(e) => setSubtaskNewCommentText(e.target.value)}
+                          placeholder="Add a comment..."
+                          className={`flex-1 px-3 py-1.5 rounded-xl text-xs font-semibold focus:ring-1 focus:ring-cyan-500 outline-none border ${
+                            theme === 'dark' 
+                              ? 'bg-slate-900 border-slate-700 text-slate-200' 
+                              : 'bg-white border-slate-200 text-slate-800'
+                          }`}
+                        />
+                        <button
+                          type="submit"
+                          disabled={!subtaskNewCommentText.trim()}
+                          className="px-3 py-1.5 rounded-xl bg-cyan-500 text-slate-950 text-xs font-black hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                          Send
+                        </button>
+                      </form>
+                    </div>
                   )}
                 </div>
               ))}

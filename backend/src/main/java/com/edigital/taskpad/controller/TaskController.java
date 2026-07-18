@@ -12,7 +12,12 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+
+
+
+
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -170,11 +175,40 @@ public class TaskController {
         return taskRepository.saveAll(prepared);
     }
 
+    // Documents mandatory toggle (admin-configurable)
+    private static volatile boolean documentsMandatory = false;
+
+    @GetMapping("/admin/documents-mandatory")
+    public ResponseEntity<Map<String, Object>> getDocumentsMandatory() {
+        return ResponseEntity.ok(Map.of("mandatory", documentsMandatory));
+    }
+
+    @PutMapping("/admin/documents-mandatory")
+    public ResponseEntity<?> setDocumentsMandatory(@RequestBody Map<String, Object> payload) {
+        Object v = payload == null ? null : payload.get("mandatory");
+        boolean next = v instanceof Boolean ? (Boolean) v : (v != null && Boolean.parseBoolean(String.valueOf(v)));
+        documentsMandatory = next;
+        return ResponseEntity.ok(Map.of("mandatory", documentsMandatory));
+    }
+
+
     @PutMapping("/{id}")
     public ResponseEntity<Task> updateTask(@PathVariable String id, @RequestBody Task taskDetails) {
         Optional<Task> optionalTask = taskRepository.findById(id);
         if (optionalTask.isPresent()) {
             Task task = optionalTask.get();
+
+            // ── Mandatory documents enforcement (only when submitting / not draft) ──
+            Boolean incomingIsDraft = taskDetails.getIsDraft();
+            boolean submitting = incomingIsDraft == null ? false : !incomingIsDraft;
+
+            List<String> incomingDocs = taskDetails.getDocuments();
+            boolean hasDocs = incomingDocs != null && !incomingDocs.isEmpty();
+
+            if (submitting && documentsMandatory && !hasDocs) {
+                return ResponseEntity.badRequest().body(null);
+            }
+
             task.setName(taskDetails.getName());
             task.setDescription(taskDetails.getDescription());
             task.setProject(taskDetails.getProject());
@@ -211,6 +245,7 @@ public class TaskController {
             recomputeTaskStatusFromSubTasks(task);
 
             Task updatedTask = taskRepository.save(task);
+
 
             // ── Create real notifications in DB on workflow transitions ──
             try {

@@ -85,6 +85,32 @@ export default function SettingsPage({ theme, user, onThemeToggle, onUserUpdated
     { id: 'help', label: 'Help', icon: HelpCircle }
   ];
 
+  // Admin-only: documents mandatory toggle
+  const [documentsMandatory, setDocumentsMandatory] = useState<boolean>(false);
+  const [docsMandatoryLoading, setDocsMandatoryLoading] = useState<boolean>(false);
+
+
+  useEffect(() => {
+    // Only admins should see this; backend endpoint is lightweight.
+    const role = (sessionStorage.getItem('taskpad_user')
+      ? (JSON.parse(sessionStorage.getItem('taskpad_user') as string)?.role)
+      : undefined) as 'admin' | 'user' | undefined;
+
+    if (role !== 'admin') return;
+
+    (async () => {
+      try {
+        const res = await fetch('/api/tasks/admin/documents-mandatory');
+        if (!res.ok) return;
+        const data = await res.json();
+        setDocumentsMandatory(!!data?.mandatory);
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
+
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -245,11 +271,73 @@ export default function SettingsPage({ theme, user, onThemeToggle, onUserUpdated
             <div className={`p-6 rounded-2xl border ${
               theme === 'dark' ? 'bg-[#141C38] border-slate-800' : 'bg-white border-slate-100'
             }`}>
-              <div className="py-8 text-center text-xs text-slate-500">
-                Settings for {tabs.find(t => t.id === activeTab)?.label} coming soon!
-              </div>
+              {(() => {
+                const role = (sessionStorage.getItem('taskpad_user')
+                  ? (JSON.parse(sessionStorage.getItem('taskpad_user') as string)?.role)
+                  : undefined) as 'admin' | 'user' | undefined;
+
+                const isAdmin = role === 'admin';
+
+                if (isAdmin && activeTab === 'security') {
+                  return (
+                    <div className="space-y-5">
+                      <h3 className="text-lg font-bold">Admin Controls</h3>
+
+                      <div className={`p-4 rounded-xl border ${theme === 'dark' ? 'bg-[#0D1631] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-bold">Documents mandatory on submit</p>
+                            <p className="text-xs text-slate-400 mt-1">
+                              If enabled, user cannot submit a task without attaching documents.
+                            </p>
+                          </div>
+
+                          <div className="flex flex-col items-end gap-2">
+                            <button
+                              type="button"
+                              disabled={docsMandatoryLoading}
+                              onClick={async () => {
+                                const next = !documentsMandatory;
+                                setDocsMandatoryLoading(true);
+                                try {
+                                  const res = await fetch('/api/tasks/admin/documents-mandatory', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ mandatory: next }),
+                                  });
+                                  if (!res.ok) return;
+                                  setDocumentsMandatory(next);
+                                } finally {
+                                  setDocsMandatoryLoading(false);
+                                }
+                              }}
+                              className={`w-14 h-7 rounded-full transition flex items-center px-1 ${
+                                documentsMandatory ? 'bg-cyan-500' : 'bg-slate-700'
+                              } opacity-90 disabled:opacity-50`}
+                            >
+                              <div
+                                className={`w-6 h-6 rounded-full bg-white shadow-md transition-transform ${
+                                  documentsMandatory ? 'translate-x-7' : 'translate-x-0.5'
+                                }`}
+                              />
+                            </button>
+                            <p className="text-[10px] text-slate-400">{docsMandatoryLoading ? 'Saving...' : (documentsMandatory ? 'ON' : 'OFF')}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="py-8 text-center text-xs text-slate-500">
+                    Settings for {tabs.find(t => t.id === activeTab)?.label} coming soon!
+                  </div>
+                );
+              })()}
             </div>
           )}
+
         </div>
       </div>
     </div>

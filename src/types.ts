@@ -18,12 +18,13 @@ export interface Task {
   service?: string;
   follower?: string;
   documents?: string[];
-  subTasks?: { id: string; name: string; completed: boolean; approvedByAdmin?: boolean; assignTo?: string }[];
+  subTasks?: { id: string; name: string; completed: boolean; approvedByAdmin?: boolean; assignTo?: string; comments?: { id: string; author: string; text: string; date: string }[] }[];
 
   checklist?: { id: string; name: string; checked: boolean }[];
   comments?: { id: string; author: string; text: string; date: string }[];
   timeLogs?: { id: string; user: string; duration: string; date: string }[];
   isDraft?: boolean;
+  documentsMandatory?: boolean; // Per-task setting to make documents mandatory for users
   // Recurring and Time features
   isRecurring?: boolean;
   recurrence?: {
