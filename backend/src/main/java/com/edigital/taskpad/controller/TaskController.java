@@ -411,6 +411,10 @@ public class TaskController {
                         : st.getId() + "-dup-" + System.currentTimeMillis() + "-" + i);
                 next.setName(st.getName());
                 next.setCompleted(st.isCompleted());
+
+                // Copy existing subtask comments (so admins/users can still see history)
+                next.setComments(st.getComments() != null ? new ArrayList<>(st.getComments()) : null);
+
                 // reset workflow approval gates for duplicate so it can go through review again
                 next.setApprovedByAdmin(false);
                 next.setApprovedByAdminAt(null);
@@ -419,6 +423,7 @@ public class TaskController {
             }
             duplicated.setSubTasks(copied);
         }
+
 
         duplicated.setChecklist(src.getChecklist() != null ? new ArrayList<>(src.getChecklist()) : null);
         duplicated.setComments(src.getComments() != null ? new ArrayList<>(src.getComments()) : null);

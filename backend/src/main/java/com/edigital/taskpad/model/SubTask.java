@@ -1,5 +1,7 @@
 package com.edigital.taskpad.model;
 
+import java.util.List;
+
 public class SubTask {
     private String id;
     private String name;
@@ -8,6 +10,9 @@ public class SubTask {
     // Admin approval gate (workflow): only approved + completed subtasks allow main task completion
     private boolean approvedByAdmin;
     private String approvedByAdminAt;
+
+    // Subtask-level comments (admin + user)
+    private List<Comment> comments;
 
     // Constructors
     public SubTask() {}
@@ -18,6 +23,7 @@ public class SubTask {
         this.completed = completed;
         this.approvedByAdmin = false;
         this.approvedByAdminAt = null;
+        this.comments = null;
     }
 
     public SubTask(String id, String name, boolean completed, boolean approvedByAdmin, String approvedByAdminAt) {
@@ -26,8 +32,8 @@ public class SubTask {
         this.completed = completed;
         this.approvedByAdmin = approvedByAdmin;
         this.approvedByAdminAt = approvedByAdminAt;
+        this.comments = null;
     }
-
 
     // Getters and Setters
     public String getId() { return id; }
@@ -44,5 +50,9 @@ public class SubTask {
 
     public String getApprovedByAdminAt() { return approvedByAdminAt; }
     public void setApprovedByAdminAt(String approvedByAdminAt) { this.approvedByAdminAt = approvedByAdminAt; }
+
+    public List<Comment> getComments() { return comments; }
+    public void setComments(List<Comment> comments) { this.comments = comments; }
 }
+
 
