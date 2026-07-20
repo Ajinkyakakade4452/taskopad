@@ -46,6 +46,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   const [comments, setComments] = useState<{ id: string; author: string; text: string; date: string }[]>([]);
   const [timeLogs, setTimeLogs] = useState<{ id: string; user: string; duration: string; date: string }[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [userAttachments, setUserAttachments] = useState<string[]>([]);
   const [activityLogs, setActivityLogs] = useState<{ id: string; user: string; action: string; date: string }[]>([]);
 
   // New item inputs
@@ -53,8 +54,9 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   const [newChecklistItemName, setNewChecklistItemName] = useState('');
   const [newCommentText, setNewCommentText] = useState('');
   const [newTimeDuration, setNewTimeDuration] = useState('');
-  const [newTimeUser, setNewTimeUser] = useState('');
+  const [newTimeUser, setNewTimeUser] = useState('Krishna Lokhande');
   const [newAttachmentName, setNewAttachmentName] = useState('');
+  const [fileToUpload, setFileToUpload] = useState<File | null>(null);
   
   // Subtask comments state
   const [expandedSubtaskId, setExpandedSubtaskId] = useState<string | null>(null); // Which subtask's comments are expanded
@@ -102,6 +104,10 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       ]).map(st => ({ ...st, comments: st.comments || [] })); // Make sure every subtask has a comments array
       setSubTasks(initialSubTasks);
 
+      // Ensure admin-attached documents are shown immediately.
+      // Avoid overriding backend-provided documents with mock attachments.
+
+
       const initialChecklist = task.checklist || [
         { id: 'chk-1', name: 'Verify typography styling details', checked: true },
         { id: 'chk-2', name: 'Test responsive scaling viewport', checked: false },
@@ -121,8 +127,14 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       ];
       setTimeLogs(initialTimeLogs);
 
-      const initialAttachments = task.documents || ['project_brief_v2.pdf', 'mood_board_preview.png'];
+      // Show backend documents if present; only fallback to mocks if truly missing.
+      const initialAttachments = (task.documents && task.documents.length > 0)
+        ? task.documents
+        : ['project_brief_v2.pdf', 'mood_board_preview.png'];
       setAttachments(initialAttachments);
+
+      setUserAttachments(task.userDocuments || []);
+
 
       const initialActivity = [
         { id: 'act-1', user: 'Aditya Kirat Karve', action: 'Created task queue assignment', date: '2026-06-29 09:12 AM' },
@@ -164,7 +176,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
 
     // Gate: check if documents are required (only for non-admins)
     const needsDocuments = globalDocumentsMandatory || perTaskDocumentsMandatory;
-    if (loggedInUser?.role !== 'admin' && needsDocuments && (!attachments || attachments.length === 0)) {
+    if (loggedInUser?.role !== 'admin' && needsDocuments && (!userAttachments || userAttachments.length === 0)) {
       alert('Documents are mandatory for this task!');
       return;
     }
@@ -186,6 +198,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       comments,
       timeLogs,
       documents: attachments,
+      userDocuments: userAttachments,
       documentsMandatory: perTaskDocumentsMandatory,
     };
     onSave(updatedTask);
@@ -214,6 +227,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       comments,
       timeLogs,
       documents: attachments,
+      userDocuments: userAttachments,
     };
     onSave(updatedTask);
   };
@@ -275,6 +289,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       comments: updated,
       timeLogs,
       documents: attachments,
+      userDocuments: userAttachments,
     };
     onSave(updatedTask);
 
@@ -311,6 +326,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       comments,
       timeLogs,
       documents: attachments,
+      userDocuments: userAttachments,
     };
     onSave(updatedTask);
   };
@@ -363,6 +379,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       comments,
       timeLogs: updated,
       documents: attachments,
+      userDocuments: userAttachments,
     };
     onSave(updatedTask);
 
@@ -377,61 +394,132 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   };
 
   // Mock Attachment Upload
-  const handleAddAttachment = (e: React.FormEvent) => {
+  const handleAddAttachment = async (e: React.FormEvent) => {
     e.preventDefault();
-    const nameToUse = newAttachmentName.trim() || 'unnamed_attachment.png';
-    const updated = [...attachments, nameToUse];
-    setAttachments(updated);
+    if (!fileToUpload && !newAttachmentName.trim()) return;
+    
+    let uploadedUrl = newAttachmentName.trim() || 'unnamed_attachment.png';
+    if (fileToUpload) {
+      try {
+        const formData = new FormData();
+        formData.append('file', fileToUpload);
+        const uploadRes = await fetch('http://localhost:8081/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        if (uploadRes.ok) {
+          const data = await uploadRes.json();
+          uploadedUrl = 'http://localhost:8081' + data.url;
+        }
+      } catch (err) {
+        console.error('File upload failed', err);
+      }
+    }
+    
+    let updatedTask: Task;
+    if (loggedInUser?.role === 'admin') {
+      const updated = [...attachments, uploadedUrl];
+      setAttachments(updated);
+      updatedTask = {
+        ...task,
+        subTasks,
+        checklist,
+        comments,
+        timeLogs,
+        documents: updated,
+        userDocuments: userAttachments,
+      };
+    } else {
+      const updated = [...userAttachments, uploadedUrl];
+      setUserAttachments(updated);
+      updatedTask = {
+        ...task,
+        subTasks,
+        checklist,
+        comments,
+        timeLogs,
+        documents: attachments,
+        userDocuments: updated,
+      };
+    }
+    
     setNewAttachmentName('');
+    setFileToUpload(null);
 
     // Save state instantly to App
-    const updatedTask: Task = {
-      ...task,
-      subTasks,
-      checklist,
-      comments,
-      timeLogs,
-      documents: updated,
-    };
     onSave(updatedTask);
 
     // Log Activity
     const newActLog = {
       id: `act-${Date.now()}`,
-      user: 'Krishna Lokhande',
-      action: `Attached file: ${nameToUse}`,
+      user: loggedInUser?.name || 'User',
+      action: `Attached file: ${fileToUpload?.name || uploadedUrl}`,
       date: new Date().toLocaleString()
     };
     setActivityLogs(prev => [newActLog, ...prev]);
   };
 
-  // Drag and drop mock trigger
+  // Drag and drop real upload
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    const mockFileName = 'dragged_file_' + Math.floor(Math.random() * 100) + '.pdf';
-    const updated = [...attachments, mockFileName];
-    setAttachments(updated);
+    const droppedFile = e.dataTransfer.files[0];
+    if (!droppedFile) return;
+    
+    let uploadedUrl = droppedFile.name;
+    try {
+      const formData = new FormData();
+      formData.append('file', droppedFile);
+      const uploadRes = await fetch('http://localhost:8081/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      if (uploadRes.ok) {
+        const data = await uploadRes.json();
+        uploadedUrl = 'http://localhost:8081' + data.url;
+      }
+    } catch (err) {
+      console.error('Drag-and-drop upload failed', err);
+    }
+
+    let updatedTask: Task;
+    if (loggedInUser?.role === 'admin') {
+      const updated = [...attachments, uploadedUrl];
+      setAttachments(updated);
+      updatedTask = {
+        ...task,
+        subTasks,
+        checklist,
+        comments,
+        timeLogs,
+        documents: updated,
+        userDocuments: userAttachments,
+      };
+    } else {
+      const updated = [...userAttachments, uploadedUrl];
+      setUserAttachments(updated);
+      updatedTask = {
+        ...task,
+        subTasks,
+        checklist,
+        comments,
+        timeLogs,
+        documents: attachments,
+        userDocuments: updated,
+      };
+    }
 
     // Save state instantly to App
-    const updatedTask: Task = {
-      ...task,
-      subTasks,
-      checklist,
-      comments,
-      timeLogs,
-      documents: updated,
-    };
     onSave(updatedTask);
 
     // Log Activity
     const newActLog = {
       id: `act-${Date.now()}`,
-      user: 'Krishna Lokhande',
-      action: `Uploaded file via drag-and-drop: ${mockFileName}`,
+      user: loggedInUser?.name || 'User',
+      action: `Uploaded file via drag-and-drop: ${droppedFile.name}`,
       date: new Date().toLocaleString()
     };
     setActivityLogs(prev => [newActLog, ...prev]);
@@ -474,6 +562,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       comments,
       timeLogs,
       documents: attachments,
+      userDocuments: userAttachments,
     };
     onSave(updatedTask);
   };
@@ -1061,23 +1150,59 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
             <div className="space-y-2">
               {attachments.map((file, idx) => (
                 <div 
-                  key={idx} 
+                  key={`admin-${idx}`} 
                   className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
                     theme === 'dark' ? 'border-slate-800/50 bg-[#141C38]/40 hover:bg-[#141C38]/70' : 'border-slate-100 bg-slate-50 hover:bg-slate-100/50'
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <Paperclip className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                    <span className="text-xs font-mono font-bold text-slate-300 truncate max-w-[200px]">{file}</span>
+                    <span 
+                      onClick={() => window.open(file.startsWith('http') ? file : `#${file}`, '_blank')}
+                      className="text-xs font-mono font-bold text-slate-300 truncate max-w-[200px] cursor-pointer hover:text-cyan-400 hover:underline"
+                      title="Click to open"
+                    >
+                      {file.split('/').pop()}
+                    </span>
                   </div>
                   <button
                     onClick={() => {
                       const updated = attachments.filter((_, i) => i !== idx);
                       setAttachments(updated);
-                      onSave({ ...task, documents: updated });
+                      onSave({ ...task, documents: updated, userDocuments: userAttachments });
                     }}
                     className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-slate-800/20 transition cursor-pointer"
-                    title="Remove attachment"
+                    title="Remove admin attachment"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              {userAttachments.map((file, idx) => (
+                <div 
+                  key={`user-${idx}`} 
+                  className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
+                    theme === 'dark' ? 'border-slate-800/50 bg-[#141C38]/40 hover:bg-[#141C38]/70' : 'border-slate-100 bg-slate-50 hover:bg-slate-100/50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                    <span 
+                      onClick={() => window.open(file.startsWith('http') ? file : `#${file}`, '_blank')}
+                      className="text-xs font-mono font-bold text-emerald-300 truncate max-w-[200px] cursor-pointer hover:text-emerald-400 hover:underline"
+                      title="Click to open"
+                    >
+                      {file.split('/').pop()}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const updated = userAttachments.filter((_, i) => i !== idx);
+                      setUserAttachments(updated);
+                      onSave({ ...task, documents: attachments, userDocuments: updated });
+                    }}
+                    className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-slate-800/20 transition cursor-pointer"
+                    title="Remove user attachment"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -1099,26 +1224,38 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               <p className="text-[10px] font-bold">Drag and drop file here or use form below</p>
             </div>
 
-            <form onSubmit={handleAddAttachment} className="flex gap-2">
+            <div className="flex gap-2">
               <input
-                type="text"
-                value={newAttachmentName}
-                onChange={(e) => setNewAttachmentName(e.target.value)}
-                placeholder="Mock attachment filename..."
-                className={`flex-1 px-3 py-1.5 rounded-xl text-xs font-semibold focus:ring-1 focus:ring-cyan-500 outline-none border ${
-                  theme === 'dark' 
-                    ? 'bg-[#141C38] border-slate-800 text-slate-200' 
-                    : 'bg-slate-50 border-slate-200 text-slate-800'
-                }`}
+                type="file"
+                id="task-details-file-upload"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    setFileToUpload(e.target.files[0]);
+                    setNewAttachmentName(e.target.files[0].name);
+                  }
+                }}
               />
+              <label
+                htmlFor="task-details-file-upload"
+                className={`flex-1 flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer transition truncate ${
+                  theme === 'dark' 
+                    ? 'bg-[#141C38] border-slate-800 text-slate-400 hover:text-slate-200' 
+                    : 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {newAttachmentName ? newAttachmentName : 'Select file to upload...'}
+              </label>
               <button
-                type="submit"
-                className="px-3.5 py-1.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 text-xs font-bold hover:bg-cyan-500/20 cursor-pointer transition flex items-center gap-1"
+                type="button"
+                onClick={handleAddAttachment}
+                disabled={!newAttachmentName.trim()}
+                className="px-3.5 py-1.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 text-xs font-bold hover:bg-cyan-500/20 cursor-pointer transition flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add</span>
               </button>
-            </form>
+            </div>
           </div>
 
           {/* 11. Time Log */}

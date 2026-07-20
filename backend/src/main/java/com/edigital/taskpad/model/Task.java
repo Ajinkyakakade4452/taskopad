@@ -61,6 +61,13 @@ public class Task {
     @Column(columnDefinition = "TEXT")
     private List<TimeLog> timeLogs;
 
+    @Column(name = "documents_mandatory")
+    private Boolean documentsMandatory = false;
+
+    @Convert(converter = ListStringConverter.class)
+    @Column(columnDefinition = "TEXT", name = "user_documents")
+    private List<String> userDocuments;
+
     @Column(name = "is_draft")
     private Boolean isDraft = false;
 
@@ -128,6 +135,12 @@ public class Task {
 
     public List<String> getDocuments() { return documents; }
     public void setDocuments(List<String> documents) { this.documents = documents; }
+
+    public Boolean getDocumentsMandatory() { return documentsMandatory; }
+    public void setDocumentsMandatory(Boolean documentsMandatory) { this.documentsMandatory = documentsMandatory; }
+
+    public List<String> getUserDocuments() { return userDocuments; }
+    public void setUserDocuments(List<String> userDocuments) { this.userDocuments = userDocuments; }
 
     public List<SubTask> getSubTasks() { return subTasks; }
     public void setSubTasks(List<SubTask> subTasks) { this.subTasks = subTasks; }

@@ -79,6 +79,8 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
   const [selectedWeekdays, setSelectedWeekdays] = useState<string[]>([]);
   const [repeatOn, setRepeatOn] = useState('Same date of every month');
   const [customRule, setCustomRule] = useState('');
+  const [customDates, setCustomDates] = useState<string[]>([]);
+  const [customDateInput, setCustomDateInput] = useState('');
   const [endOption, setEndOption] = useState<'Never' | 'On Date' | 'After Occurrences'>('Never');
   const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
   const [occurrences, setOccurrences] = useState(10);
@@ -310,27 +312,53 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
     setIsDragging(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const fileNames: string[] = [];
+      const urls: string[] = [];
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        fileNames.push(e.dataTransfer.files[i].name);
-        addActivity(`Uploaded file: ${e.dataTransfer.files[i].name}`);
+        const file = e.dataTransfer.files[i];
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch('http://localhost:8081/api/upload', { method: 'POST', body: formData });
+          if (res.ok) {
+            const data = await res.json();
+            urls.push('http://localhost:8081' + data.url);
+          } else {
+            urls.push(file.name);
+          }
+        } catch {
+          urls.push(file.name);
+        }
+        addActivity(`Uploaded file: ${file.name}`);
       }
-      setUploadedDocuments((prev) => [...prev, ...fileNames]);
+      setUploadedDocuments((prev) => [...prev, ...urls]);
     }
   };
 
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const fileNames: string[] = [];
+      const urls: string[] = [];
       for (let i = 0; i < e.target.files.length; i++) {
-        fileNames.push(e.target.files[i].name);
-        addActivity(`Uploaded file: ${e.target.files[i].name}`);
+        const file = e.target.files[i];
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch('http://localhost:8081/api/upload', { method: 'POST', body: formData });
+          if (res.ok) {
+            const data = await res.json();
+            urls.push('http://localhost:8081' + data.url);
+          } else {
+            urls.push(file.name);
+          }
+        } catch {
+          urls.push(file.name);
+        }
+        addActivity(`Uploaded file: ${file.name}`);
       }
-      setUploadedDocuments((prev) => [...prev, ...fileNames]);
+      setUploadedDocuments((prev) => [...prev, ...urls]);
     }
   };
 
@@ -568,6 +596,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
             weekdays: repeatType === 'Weekly' ? selectedWeekdays : undefined,
             repeatOn: repeatType === 'Monthly' ? repeatOn : undefined,
             customRule: repeatType === 'Custom' ? customRule : undefined,
+            customDates: repeatType === 'Custom' ? customDates : undefined,
             endOption,
             endDate: endOption === 'On Date' ? recurrenceEndDate : undefined,
             occurrences: endOption === 'After Occurrences' ? occurrences : undefined,
@@ -599,6 +628,8 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
     setSelectedWeekdays([]);
     setRepeatOn('Same date of every month');
     setCustomRule('');
+    setCustomDates([]);
+    setCustomDateInput('');
     setEndOption('Never');
     setRecurrenceEndDate('');
     setOccurrences(10);
@@ -1485,21 +1516,84 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
                     </div>
                   )}
 
-                  {/* Custom details */}
+                  {/* Custom details — specific date picker */}
                   {repeatType === 'Custom' && (
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Custom repeat rule</label>
-                      <input
-                        type="text"
-                        placeholder="e.g., Every second Tuesday of the month"
-                        value={customRule}
-                        onChange={(e) => setCustomRule(e.target.value)}
-                        className={`w-full text-xs px-3 py-2 rounded-xl border outline-none ${
-                          theme === 'dark'
-                            ? 'bg-[#0D1631] border-slate-700 text-slate-200'
-                            : 'bg-slate-50 border-slate-200 text-slate-700'
-                        }`}
-                      />
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Select Specific Dates</label>
+                      
+                      {/* Add date input */}
+                      <div className="flex gap-2 items-center">
+                        <input
+                          type="date"
+                          value={customDateInput}
+                          onChange={(e) => setCustomDateInput(e.target.value)}
+                          className={`flex-1 text-xs px-3 py-2 rounded-xl border outline-none ${
+                            theme === 'dark'
+                              ? 'bg-[#0D1631] border-slate-700 text-slate-200'
+                              : 'bg-slate-50 border-slate-200 text-slate-700'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          disabled={!customDateInput || customDates.includes(customDateInput)}
+                          onClick={() => {
+                            if (customDateInput && !customDates.includes(customDateInput)) {
+                              setCustomDates(prev => [...prev, customDateInput].sort());
+                              setCustomDateInput('');
+                            }
+                          }}
+                          className="px-3 py-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-xs font-bold hover:bg-cyan-500/20 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          + Add
+                        </button>
+                      </div>
+
+                      {/* Selected dates chips */}
+                      {customDates.length > 0 ? (
+                        <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                          {customDates.map((date) => (
+                            <div
+                              key={date}
+                              className={`flex items-center justify-between px-3 py-1.5 rounded-lg border text-xs ${
+                                theme === 'dark'
+                                  ? 'bg-cyan-500/5 border-cyan-500/20 text-cyan-300'
+                                  : 'bg-cyan-50 border-cyan-200 text-cyan-700'
+                              }`}
+                            >
+                              <span className="font-semibold">
+                                {new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setCustomDates(prev => prev.filter(d => d !== date))}
+                                className="text-slate-400 hover:text-rose-400 transition ml-2"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className={`text-[10px] italic ${ theme === 'dark' ? 'text-slate-500' : 'text-slate-400' }`}>
+                          No dates added yet. Use the picker above to add specific dates.
+                        </p>
+                      )}
+
+                      {/* Optional text note */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Note (optional)</label>
+                        <input
+                          type="text"
+                          placeholder="e.g., Monthly board review, every second Tuesday"
+                          value={customRule}
+                          onChange={(e) => setCustomRule(e.target.value)}
+                          className={`w-full text-xs px-3 py-2 rounded-xl border outline-none ${
+                            theme === 'dark'
+                              ? 'bg-[#0D1631] border-slate-700 text-slate-200 placeholder:text-slate-600'
+                              : 'bg-slate-50 border-slate-200 text-slate-700'
+                          }`}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -1814,7 +1908,13 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
                   <div key={doc} className="flex items-center justify-between bg-[#141C38] px-2.5 py-1.5 rounded-lg border border-slate-800/30 text-[10px]">
                     <div className="flex items-center gap-1.5 truncate">
                       <FileText className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                      <span className="truncate text-slate-300 font-medium">{doc}</span>
+                      <span
+                        onClick={() => doc.startsWith('http') && window.open(doc, '_blank')}
+                        className={`truncate font-medium ${doc.startsWith('http') ? 'text-cyan-400 cursor-pointer hover:underline' : 'text-slate-300'}`}
+                        title={doc.startsWith('http') ? 'Click to open' : doc}
+                      >
+                        {doc.startsWith('http') ? doc.split('/').pop() : doc}
+                      </span>
                     </div>
                     <button
                       type="button"

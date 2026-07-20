@@ -4,6 +4,7 @@ com\edigital\taskpad\model\SubTask.class
 com\edigital\taskpad\util\converters\ChecklistConverter.class
 com\edigital\taskpad\controller\TaskController.class
 com\edigital\taskpad\util\converters\TimeLogListConverter.class
+com\edigital\taskpad\controller\NotificationController.class
 com\edigital\taskpad\util\converters\ChecklistConverter$1.class
 com\edigital\taskpad\util\converters\ListStringConverter$1.class
 com\edigital\taskpad\repository\TimeEntryRepository.class
@@ -26,14 +27,17 @@ com\edigital\taskpad\model\Task.class
 com\edigital\taskpad\repository\ProjectRepository.class
 com\edigital\taskpad\model\User.class
 com\edigital\taskpad\model\ProjectTeamMember.class
+com\edigital\taskpad\controller\UploadController.class
 com\edigital\taskpad\model\ChecklistItem.class
 com\edigital\taskpad\repository\NoteRepository.class
 com\edigital\taskpad\util\converters\CommentListConverter.class
 com\edigital\taskpad\model\DiscussionMessage.class
 com\edigital\taskpad\util\converters\ListStringConverter.class
+com\edigital\taskpad\controller\ProjectMembersDTO.class
 com\edigital\taskpad\repository\TaskRepository.class
 com\edigital\taskpad\model\TimeLog.class
 com\edigital\taskpad\util\converters\CommentListConverter$1.class
 com\edigital\taskpad\model\Note.class
 com\edigital\taskpad\model\Recurrence.class
+com\edigital\taskpad\controller\ProjectController.class
 com\edigital\taskpad\controller\TimeEntryController.class

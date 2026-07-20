@@ -293,6 +293,21 @@ export default function App() {
   const handleSelectTaskForDetails = (task: Task) => {
     setSelectedTaskForDetails(task);
     setIsDetailsPanelOpen(true);
+
+    // Ensure the details panel shows latest documents from backend (especially after admin attaches docs)
+    if (task?.id) {
+      fetch(`${API_BASE}/tasks/${task.id}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((fresh) => {
+          if (fresh) {
+            setSelectedTaskForDetails(fresh);
+            setTasks((prev) => prev.map((t) => (t.id === fresh.id ? fresh : t)));
+          }
+        })
+        .catch(() => {
+          // ignore
+        });
+    }
   };
 
   const handleAddTask = async (newTaskData: Omit<Task, 'id'>) => {

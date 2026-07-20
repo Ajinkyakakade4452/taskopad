@@ -33,6 +33,8 @@ import {
   MoreHorizontal,
   X,
   Loader2,
+  Paperclip,
+  Trash2,
 } from 'lucide-react';
 import { Task, TaskStatus } from '../types';
 import ProjectsSection from './ProjectsSection';
@@ -195,6 +197,70 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
+  const [newAttachmentName, setNewAttachmentName] = useState('');
+  const [fileToUpload, setFileToUpload] = useState<File | null>(null);
+
+  const handleAddAttachment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTask || !fileToUpload) return;
+    
+    let uploadedUrl = newAttachmentName.trim();
+    try {
+      const formData = new FormData();
+      formData.append('file', fileToUpload);
+      
+      const uploadRes = await fetch('http://localhost:8081/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      if (uploadRes.ok) {
+        const data = await uploadRes.json();
+        uploadedUrl = 'http://localhost:8081' + data.url;
+      }
+    } catch (err) {
+      console.error('File upload failed', err);
+    }
+
+    const updatedUserDocuments = [...(selectedTask.userDocuments || []), uploadedUrl];
+    const updated = { ...selectedTask, userDocuments: updatedUserDocuments };
+    
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${selectedTask.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+      if (res.ok) {
+        setTasks((prev) => prev.map((t) => (t.id === selectedTask.id ? updated : t)));
+        setSelectedTask(updated);
+        setNewAttachmentName('');
+        setFileToUpload(null);
+      }
+    } catch {
+      console.error('Failed to update attachments');
+    }
+  };
+
+  const handleRemoveUserAttachment = async (idx: number) => {
+    if (!selectedTask) return;
+    const updatedUserDocuments = (selectedTask.userDocuments || []).filter((_, i) => i !== idx);
+    const updated = { ...selectedTask, userDocuments: updatedUserDocuments };
+    
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${selectedTask.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+      if (res.ok) {
+        setTasks((prev) => prev.map((t) => (t.id === selectedTask.id ? updated : t)));
+        setSelectedTask(updated);
+      }
+    } catch {
+      console.error('Failed to update attachments');
+    }
+  };
+
   const [users, setUsers] = useState<{ id: string; name: string; email: string }[]>([]);
 
   useEffect(() => {
@@ -279,6 +345,14 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   };
 
   const handleStatusChange = async (task: Task, newStatus: TaskStatus) => {
+    // Check for mandatory documents when submitting for review
+    if (newStatus === 'Under Review') {
+      if (task.documentsMandatory && (!task.userDocuments || task.userDocuments.length === 0)) {
+        alert('Documents are mandatory for this task! Please upload a document before submitting.');
+        return;
+      }
+    }
+
     const taskId = task.id;
     setUpdatingId(taskId);
     try {
@@ -1002,6 +1076,92 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                   </div>
                 </div>
               )}
+              
+              {/* Attachments Section */}
+              <div className="pt-2 border-t border-slate-700/50">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Attachments</p>
+                <div className="space-y-2 mb-3">
+                  {/* Admin Documents */}
+                  {(selectedTask.documents || []).map((doc, idx) => (
+                    <div
+                      key={`admin-${idx}`}
+                      className="flex items-center justify-between p-2.5 rounded-lg border bg-slate-800/20 border-slate-700/30"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Paperclip className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+                        <span 
+                          onClick={() => window.open(doc.startsWith('http') ? doc : `#${doc}`, '_blank')}
+                          className="text-xs font-mono text-slate-300 truncate max-w-[200px] cursor-pointer hover:text-cyan-400 hover:underline"
+                          title="Click to open"
+                        >
+                          {doc.split('/').pop()}
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-bold text-cyan-400/70 bg-cyan-500/10 px-1.5 py-0.5 rounded">Admin</span>
+                    </div>
+                  ))}
+                  
+                  {/* User Documents */}
+                  {(selectedTask.userDocuments || []).map((doc, idx) => (
+                    <div
+                      key={`user-${idx}`}
+                      className="flex items-center justify-between p-2.5 rounded-lg border bg-slate-800/30 border-slate-700/50"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Paperclip className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                        <span 
+                          onClick={() => window.open(doc.startsWith('http') ? doc : `#${doc}`, '_blank')}
+                          className="text-xs font-mono text-emerald-300 truncate max-w-[200px] cursor-pointer hover:text-emerald-400 hover:underline"
+                          title="Click to open"
+                        >
+                          {doc.split('/').pop()}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveUserAttachment(idx)}
+                        className="p-1 rounded-md text-slate-500 hover:text-rose-400 hover:bg-slate-700/50 transition cursor-pointer"
+                        title="Remove attachment"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {!(selectedTask.documents?.length) && !(selectedTask.userDocuments?.length) && (
+                    <p className="text-xs text-slate-500 italic px-1">No attachments</p>
+                  )}
+                </div>
+
+                {/* Upload Form */}
+                <div className="flex gap-2">
+                  <input
+                    type="file"
+                    id="user-file-upload-dash"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setFileToUpload(e.target.files[0]);
+                        setNewAttachmentName(e.target.files[0].name);
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="user-file-upload-dash"
+                    className="flex-1 flex items-center px-3 py-1.5 rounded-lg text-xs font-medium border bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer transition truncate"
+                  >
+                    {newAttachmentName ? newAttachmentName : 'Select file to upload...'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddAttachment}
+                    disabled={!newAttachmentName.trim()}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold hover:bg-emerald-500/20 cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Upload
+                  </button>
+                </div>
+              </div>
+
             </div>
 
             <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-between flex-shrink-0">

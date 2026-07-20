@@ -15,12 +15,13 @@ public class Notification {
     private String userEmail;
 
     @Column(name = "type")
-    private String type; // e.g. "UNDER_REVIEW", "COMPLETED"
+    private String type; // e.g. "UNDER_REVIEW", "COMPLETED", "DOCUMENTS_ATTACHED"
 
     private String title;
 
     @Column(length = 2000)
     private String message;
+
 
     @Column(name = "is_read")
     private boolean read;

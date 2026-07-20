@@ -264,6 +264,35 @@ public class TaskController {
                         notificationRepository.save(nt);
                     }
 
+                    // When documents are attached by admin during Pending/Under Review -> notify user
+                    // (Frontend stores attachments in task.documents; we compare to old state.)
+                    List<String> oldDocs = task.getDocuments();
+                    List<String> nowDocs = updatedTask.getDocuments();
+                    boolean docsChanged = (nowDocs != null && !nowDocs.equals(oldDocs));
+                    if (docsChanged && nowDocs != null && !nowDocs.isEmpty()) {
+                        // Notify assignees/assignTo if present
+                        List<String> recipients = new ArrayList<>();
+                        if (updatedTask.getAssignTo() != null && !updatedTask.getAssignTo().isBlank()) {
+                            recipients.add(updatedTask.getAssignTo());
+                        }
+                        if (updatedTask.getAssignees() != null) {
+                            for (String a : updatedTask.getAssignees()) {
+                                if (a != null && !a.isBlank()) recipients.add(a);
+                            }
+                        }
+                        for (String r : recipients) {
+                            if (r != null && r.contains("@")) {
+                                Notification nt = new Notification();
+                                nt.setUserEmail(r);
+                                nt.setType("DOCUMENTS_ATTACHED");
+                                nt.setTitle("📎 Documents attached by admin");
+                                nt.setMessage("Admin attached documents for \"" + updatedTask.getName() + "\".");
+                                nt.setRead(false);
+                                notificationRepository.save(nt);
+                            }
+                        }
+                    }
+
                     // When admin approves: Under Review -> Completed
                     if ("Completed".equalsIgnoreCase(newStatus)) {
                         // Notify assignees/assignTo
