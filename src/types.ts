@@ -32,8 +32,11 @@ export interface Task {
     repeatType: 'Daily' | 'Weekly' | 'Monthly' | 'Custom';
     repeatEvery: number;
     weekdays?: string[]; // e.g., ['Mon', 'Tue']
-    repeatOn?: string; // 'same-date' | 'first-monday' | 'last-friday' | 'custom'
+    repeatOn?: string; // 'Same date of every month' | 'First Monday' | 'Last Friday' | 'Custom date'
+
     customRule?: string;
+    customDates?: string[]; // YYYY-MM-DD
+
     endOption: 'Never' | 'On Date' | 'After Occurrences';
     endDate?: string;
     occurrences?: number;

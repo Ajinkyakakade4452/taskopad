@@ -6,8 +6,14 @@ public class Recurrence {
     private String repeatType;
     private int repeatEvery;
     private List<String> weekdays;
+
+    // Monthly options
     private String repeatOn;
+
+    // Custom options
     private String customRule;
+    private List<String> customDates;
+
     private String endOption;
     private String endDate;
     private Integer occurrences;
@@ -15,17 +21,25 @@ public class Recurrence {
     // Constructors
     public Recurrence() {}
 
-    public Recurrence(String repeatType, int repeatEvery, List<String> weekdays, String repeatOn, 
-                      String customRule, String endOption, String endDate, Integer occurrences) {
+    public Recurrence(String repeatType, int repeatEvery, List<String> weekdays, String repeatOn,
+                      String customRule, List<String> customDates, String endOption, String endDate, Integer occurrences) {
         this.repeatType = repeatType;
         this.repeatEvery = repeatEvery;
         this.weekdays = weekdays;
         this.repeatOn = repeatOn;
         this.customRule = customRule;
+        this.customDates = customDates;
         this.endOption = endOption;
         this.endDate = endDate;
         this.occurrences = occurrences;
     }
+
+    // Backward-compatible constructor (older payloads didn’t include customDates)
+    public Recurrence(String repeatType, int repeatEvery, List<String> weekdays, String repeatOn,
+                      String customRule, String endOption, String endDate, Integer occurrences) {
+        this(repeatType, repeatEvery, weekdays, repeatOn, customRule, null, endOption, endDate, occurrences);
+    }
+
 
     // Getters and Setters
     public String getRepeatType() { return repeatType; }
@@ -42,6 +56,9 @@ public class Recurrence {
 
     public String getCustomRule() { return customRule; }
     public void setCustomRule(String customRule) { this.customRule = customRule; }
+
+    public List<String> getCustomDates() { return customDates; }
+    public void setCustomDates(List<String> customDates) { this.customDates = customDates; }
 
     public String getEndOption() { return endOption; }
     public void setEndOption(String endOption) { this.endOption = endOption; }
