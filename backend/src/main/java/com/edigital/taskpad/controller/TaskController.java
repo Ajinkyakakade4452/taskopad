@@ -396,6 +396,67 @@ public class TaskController {
         return ResponseEntity.ok(saved);
     }
 
+    @PostMapping("/{taskId}/subtasks/approve-all")
+    public ResponseEntity<Task> approveAllSubTasks(@PathVariable String taskId) {
+        Optional<Task> optionalTask = taskRepository.findById(taskId);
+        if (optionalTask.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Task task = optionalTask.get();
+        List<com.edigital.taskpad.model.SubTask> subtasks = task.getSubTasks();
+        if (subtasks == null || subtasks.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        for (com.edigital.taskpad.model.SubTask s : subtasks) {
+            s.setApprovedByAdmin(true);
+            s.setApprovedByAdminAt(timestamp);
+        }
+
+        task.setSubTasks(subtasks);
+        recomputeTaskStatusFromSubTasks(task);
+        Task saved = taskRepository.save(task);
+        return ResponseEntity.ok(saved);
+    }
+
+    @PostMapping("/{taskId}/subtasks/approve-bulk")
+    public ResponseEntity<Task> approveBulkSubTasks(
+            @PathVariable String taskId,
+            @RequestBody List<String> subtaskIds
+    ) {
+        Optional<Task> optionalTask = taskRepository.findById(taskId);
+        if (optionalTask.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Task task = optionalTask.get();
+        List<com.edigital.taskpad.model.SubTask> subtasks = task.getSubTasks();
+        if (subtasks == null || subtasks.isEmpty() || subtaskIds == null || subtaskIds.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        boolean updated = false;
+        for (com.edigital.taskpad.model.SubTask s : subtasks) {
+            if (s.getId() != null && subtaskIds.contains(s.getId())) {
+                s.setApprovedByAdmin(true);
+                s.setApprovedByAdminAt(timestamp);
+                updated = true;
+            }
+        }
+
+        if (!updated) {
+            return ResponseEntity.notFound().build();
+        }
+
+        task.setSubTasks(subtasks);
+        recomputeTaskStatusFromSubTasks(task);
+        Task saved = taskRepository.save(task);
+        return ResponseEntity.ok(saved);
+    }
+
     @PostMapping("/{taskId}/duplicate")
     public ResponseEntity<Task> duplicateTask(@PathVariable String taskId) {
         Optional<Task> optionalTask = taskRepository.findById(taskId);

@@ -62,6 +62,9 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   const [expandedSubtaskId, setExpandedSubtaskId] = useState<string | null>(null); // Which subtask's comments are expanded
   const [subtaskNewCommentText, setSubtaskNewCommentText] = useState(''); // Text for new comment on current subtask
 
+  // Subtask selection state for bulk approve
+  const [selectedSubtaskIds, setSelectedSubtaskIds] = useState<Set<string>>(new Set());
+
   // Dropdown list options
   const projectsList = [
     'Edigital Knowledge Academy',
@@ -142,6 +145,9 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
         { id: 'act-3', user: 'System', action: `Status auto-synchronized to: ${task.status}`, date: '2026-07-01 11:00 AM' }
       ];
       setActivityLogs(initialActivity);
+
+      // Reset subtask selection when switching tasks
+      setSelectedSubtaskIds(new Set());
 
       setIsEditing(false);
 
@@ -232,21 +238,127 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
     onSave(updatedTask);
   };
 
-  // Approve Subtask (Admin only)
-  const approveSubTask = (subId: string) => {
-    const updated = subTasks.map(st => st.id === subId ? { ...st, approvedByAdmin: true } : st);
-    setSubTasks(updated);
-    
-    // Save state instantly to App
-    const updatedTask: Task = {
-      ...task,
-      subTasks: updated,
-      checklist,
-      comments,
-      timeLogs,
-      documents: attachments,
-    };
-    onSave(updatedTask);
+  // Approve Subtask (Admin only) — calls backend API
+  const approveSubTask = async (subId: string) => {
+    if (!task) return;
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/subtasks/${subId}/approve`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const updatedTask: Task = await res.json();
+        setSubTasks(updatedTask.subTasks || []);
+        onSave(updatedTask);
+      }
+    } catch {
+      // fallback: local update
+      const updated = subTasks.map(st => st.id === subId ? { ...st, approvedByAdmin: true } : st);
+      setSubTasks(updated);
+      const updatedTask: Task = {
+        ...task,
+        subTasks: updated,
+        checklist,
+        comments,
+        timeLogs,
+        documents: attachments,
+        userDocuments: userAttachments,
+      };
+      onSave(updatedTask);
+    }
+  };
+
+  // Approve ALL subtasks at once — calls backend API
+  const approveAllSubTasks = async () => {
+    if (!task) return;
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/subtasks/approve-all`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const updatedTask: Task = await res.json();
+        setSubTasks(updatedTask.subTasks || []);
+        setSelectedSubtaskIds(new Set());
+        onSave(updatedTask);
+      }
+    } catch {
+      // fallback: local update
+      const updated = subTasks.map(st => ({ ...st, approvedByAdmin: true }));
+      setSubTasks(updated);
+      setSelectedSubtaskIds(new Set());
+      const updatedTask: Task = {
+        ...task,
+        subTasks: updated,
+        checklist,
+        comments,
+        timeLogs,
+        documents: attachments,
+        userDocuments: userAttachments,
+      };
+      onSave(updatedTask);
+    }
+  };
+
+  // Approve SELECTED subtasks — calls backend API
+  const approveSelectedSubTasks = async () => {
+    if (!task || selectedSubtaskIds.size === 0) return;
+    const idsArray = Array.from(selectedSubtaskIds);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/subtasks/approve-bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(idsArray),
+      });
+      if (res.ok) {
+        const updatedTask: Task = await res.json();
+        setSubTasks(updatedTask.subTasks || []);
+        setSelectedSubtaskIds(new Set());
+        onSave(updatedTask);
+      }
+    } catch {
+      // fallback: local update
+      const updated = subTasks.map(st => 
+        selectedSubtaskIds.has(st.id) ? { ...st, approvedByAdmin: true } : st
+      );
+      setSubTasks(updated);
+      setSelectedSubtaskIds(new Set());
+      const updatedTask: Task = {
+        ...task,
+        subTasks: updated,
+        checklist,
+        comments,
+        timeLogs,
+        documents: attachments,
+        userDocuments: userAttachments,
+      };
+      onSave(updatedTask);
+    }
+  };
+
+  // Toggle selection of a subtask
+  const toggleSubTaskSelection = (subId: string) => {
+    setSelectedSubtaskIds(prev => {
+      const next = new Set(prev);
+      if (next.has(subId)) {
+        next.delete(subId);
+      } else {
+        next.add(subId);
+      }
+      return next;
+    });
+  };
+
+  // Toggle select all subtasks (only unapproved ones)
+  const toggleSelectAllSubTasks = () => {
+    const unapprovedIds = subTasks.filter(st => st.approvedByAdmin !== true).map(st => st.id);
+    setSelectedSubtaskIds(prev => {
+      // If all unapproved are already selected, deselect all
+      const allUnapprovedSelected = unapprovedIds.every(id => prev.has(id));
+      if (allUnapprovedSelected) {
+        return new Set();
+      }
+      // Otherwise select all unapproved
+      return new Set(unapprovedIds);
+    });
   };
 
   const toggleChecklist = (chkId: string) => {
@@ -942,6 +1054,38 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               </span>
             </div>
 
+            {/* Admin actions: Approve All + Select All + Approve Selected */}
+            {loggedInUser?.role === 'admin' && subTasks.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={approveAllSubTasks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/35 transition cursor-pointer"
+                >
+                  <ThumbsUp className="w-3.5 h-3.5" />
+                  Approve All
+                </button>
+                <button
+                  onClick={toggleSelectAllSubTasks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/35 transition cursor-pointer"
+                >
+                  {(() => {
+                    const unapprovedIds = subTasks.filter(st => st.approvedByAdmin !== true).map(st => st.id);
+                    const allUnapprovedSelected = unapprovedIds.length > 0 && unapprovedIds.every(id => selectedSubtaskIds.has(id));
+                    return allUnapprovedSelected ? 'Deselect All' : 'Select All';
+                  })()}
+                </button>
+                {selectedSubtaskIds.size > 0 && (
+                  <button
+                    onClick={approveSelectedSubTasks}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/35 transition cursor-pointer"
+                  >
+                    <ThumbsUp className="w-3.5 h-3.5" />
+                    Approve Selected ({selectedSubtaskIds.size})
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Subtask gate notice (read-only view) — shown when subtasks are pending or unapproved */}
             {(() => {
               const pending = subTasks.filter(st => !st.completed);
@@ -969,6 +1113,16 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                 >
                   {/* Subtask main row */}
                   <div className="flex items-center gap-3 p-2.5">
+                    {/* Selection checkbox for admin */}
+                    {loggedInUser?.role === 'admin' && (
+                      <input
+                        type="checkbox"
+                        checked={selectedSubtaskIds.has(st.id)}
+                        onChange={() => toggleSubTaskSelection(st.id)}
+                        className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-slate-700 focus:ring-cyan-500 accent-cyan-500 flex-shrink-0"
+                        title="Select for bulk approve"
+                      />
+                    )}
                     <button
                       onClick={() => toggleSubTask(st.id)}
                       className={`p-0.5 rounded-md hover:bg-slate-800/10 transition cursor-pointer`}
