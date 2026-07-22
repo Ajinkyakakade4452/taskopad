@@ -29,11 +29,13 @@ interface TaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (task: Omit<Task, 'id'>) => void;
+  onUpdate?: (task: Task) => void; // For edit mode
+  editingTask?: Task | null; // When set, modal runs in edit mode
   users: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string }[];
   loggedInUser?: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string; token: string };
 }
 
-export default function TaskModal({ theme, isOpen, onClose, onSave, users, loggedInUser }: TaskModalProps) {
+export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, editingTask, users, loggedInUser }: TaskModalProps) {
   // --- Core State Variables ---
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -51,17 +53,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
   const [error, setError] = useState('');
 
   // --- Dropdown Lists State ---
-  const [projectsList, setProjectsList] = useState<string[]>([
-    'Edigital Knowledge Academy',
-    'Om Associates',
-    'YouGo',
-    'Easy Bank Loans',
-    'My Nest',
-    'Priyal Makeup Institute',
-    'Graphic Designing Batch',
-    'Net Access Internet',
-    'Success Visionary'
-  ]);
+  const [projectsList, setProjectsList] = useState<string[]>([]);
   const [selectedProjects, setSelectedProjects] = useState<string[]>(['Net Access Internet']);
   const [projectSearch, setProjectSearch] = useState('');
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
@@ -167,9 +159,103 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
     localStorage.setItem('taskpad_clients', JSON.stringify(clientsList));
   }, [clientsList]);
   
+  // --- Fetch Projects ---
+  useEffect(() => {
+    if (isOpen) {
+      fetch('/api/projects')
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setProjectsList(data.map(p => p.name));
+          }
+        })
+        .catch(err => console.error('Failed to fetch projects:', err));
+    }
+  }, [isOpen]);
+  
   useEffect(() => {
     localStorage.setItem('taskpad_services', JSON.stringify(servicesList));
   }, [servicesList]);
+
+  // ── Edit Mode: Pre-populate all form fields when editingTask changes ──
+  useEffect(() => {
+    if (!editingTask) return;
+    
+    setName(editingTask.name || '');
+    setDescription(editingTask.description || '');
+    setStartDate(editingTask.startDate || (() => {
+      const today = new Date();
+      return today.toISOString().split('T')[0];
+    })());
+    setDueDate(editingTask.dueDate || (() => {
+      const today = new Date();
+      return today.toISOString().split('T')[0];
+    })());
+    setStatus(editingTask.status || 'Pending');
+    setPriority(editingTask.priority || 'High');
+    setTime(editingTask.time || '11:00 AM - 12:30 PM');
+    
+    // Projects
+    if (editingTask.projects && editingTask.projects.length > 0) {
+      setSelectedProjects(editingTask.projects);
+    } else if (editingTask.project) {
+      setSelectedProjects([editingTask.project]);
+    }
+    
+    // Assignees
+    if (editingTask.assignees && editingTask.assignees.length > 0) {
+      setSelectedAssignees(editingTask.assignees);
+    } else if (editingTask.assignTo) {
+      setSelectedAssignees([editingTask.assignTo]);
+    }
+    
+    // Client, Service, Follower
+    if (editingTask.client) setSelectedClient(editingTask.client);
+    if (editingTask.service) setSelectedService(editingTask.service);
+    if (editingTask.follower) setSelectedFollower(editingTask.follower);
+    
+    // Documents
+    if (editingTask.documents) setUploadedDocuments(editingTask.documents);
+    
+    // SubTasks
+    if (editingTask.subTasks) setSubTasks(editingTask.subTasks as any);
+    
+    // Checklist
+    if (editingTask.checklist) setChecklist(editingTask.checklist);
+    
+    // Comments
+    if (editingTask.comments) setComments(editingTask.comments);
+    
+    // Time Logs
+    if (editingTask.timeLogs) {
+      setTimeLogs(editingTask.timeLogs.map(l => ({ ...l, note: '' })));
+    }
+    
+    // Recurrence
+    if (editingTask.isRecurring) {
+      setIsRecurring(true);
+      if (editingTask.recurrence) {
+        setRepeatType(editingTask.recurrence.repeatType);
+        setRepeatEvery(editingTask.recurrence.repeatEvery);
+        if (editingTask.recurrence.weekdays) setSelectedWeekdays(editingTask.recurrence.weekdays);
+        if (editingTask.recurrence.repeatOn) setRepeatOn(editingTask.recurrence.repeatOn);
+        if (editingTask.recurrence.customRule) setCustomRule(editingTask.recurrence.customRule);
+        if (editingTask.recurrence.customDates) setCustomDates(editingTask.recurrence.customDates);
+        setEndOption(editingTask.recurrence.endOption);
+        if (editingTask.recurrence.endDate) setRecurrenceEndDate(editingTask.recurrence.endDate);
+        if (editingTask.recurrence.occurrences) setOccurrences(editingTask.recurrence.occurrences);
+      }
+    }
+    
+    // Time
+    if (editingTask.startTime) setStartTime(editingTask.startTime);
+    if (editingTask.endTime) setEndTime(editingTask.endTime);
+    if (editingTask.reminderBefore) setReminderBefore(editingTask.reminderBefore);
+    
+    // Per-task documents mandatory
+    if (editingTask.documentsMandatory) setPerTaskDocumentsMandatory(editingTask.documentsMandatory);
+    
+  }, [editingTask]);
 
   // Delete handlers
   const handleDeleteClient = (clientName: string) => {
@@ -259,15 +345,35 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
     addActivity('Cleared all selected projects');
   };
 
-  const handleCreateProjectSubmit = (e: React.FormEvent) => {
+  const handleCreateProjectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newProjectName.trim() && !projectsList.includes(newProjectName.trim())) {
       const addedProj = newProjectName.trim();
-      setProjectsList((prev) => [...prev, addedProj]);
-      setSelectedProjects((prev) => [...prev, addedProj]);
-      setNewProjectName('');
-      setShowAddProjectInput(false);
-      addActivity(`Created and assigned project: ${addedProj}`);
+      
+      try {
+        const payload = {
+          name: addedProj,
+          creator: loggedInUser?.name || 'User',
+          color: '#3b82f6',
+          hasEndDate: false,
+        };
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          setProjectsList((prev) => [...prev, addedProj]);
+          setSelectedProjects((prev) => [...prev, addedProj]);
+          setNewProjectName('');
+          setShowAddProjectInput(false);
+          addActivity(`Created and assigned project: ${addedProj}`);
+        } else {
+          console.error('Failed to create project');
+        }
+      } catch (err) {
+        console.error('Error creating project:', err);
+      }
     }
   };
 
@@ -571,8 +677,8 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
       displayTime = endTime.trim() ? `${startTime.trim()} - ${endTime.trim()}` : startTime.trim();
     }
 
-    // Prepare Task details
-    onSave({
+    // Build the task data object
+    const taskData = {
       name: name.trim(),
       description: description.trim() || 'No description provided.',
       project: selectedProjects.length > 0 ? selectedProjects[0] : 'Net Access Internet',
@@ -594,7 +700,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
       timeLogs: timeLogs.map(l => ({ id: l.id, user: l.user, duration: l.duration, date: l.date })),
       isDraft: isDraftFlag,
       isRecurring,
-      documentsMandatory: perTaskDocumentsMandatory, // Save per‑task setting
+      documentsMandatory: perTaskDocumentsMandatory,
       recurrence: isRecurring
         ? {
             repeatType,
@@ -611,7 +717,19 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
       startTime: startTime.trim() || undefined,
       endTime: endTime.trim() || undefined,
       reminderBefore: startTime.trim() ? reminderBefore : undefined,
-    });
+    };
+
+    if (editingTask && onUpdate) {
+      // Edit mode: call onUpdate with the full task including ID
+      onUpdate({
+        ...editingTask,
+        ...taskData,
+        id: editingTask.id,
+      });
+    } else {
+      // Create mode: call onSave without ID
+      onSave(taskData);
+    }
 
     // Reset Form fields
     setName('');
@@ -667,7 +785,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 select-none overflow-y-auto">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 select-none overflow-y-auto">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300"
@@ -688,7 +806,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
           <div className="flex items-center justify-between border-b border-slate-800/10 pb-4">
             <div>
               <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">WORKSPACE TASK CREATOR</span>
-              <h3 className="text-lg font-bold tracking-tight">Create Live Workspace Task</h3>
+              <h3 className="text-lg font-bold tracking-tight">{editingTask ? 'Edit Workspace Task' : 'Create Live Workspace Task'}</h3>
             </div>
             <button
               onClick={onClose}

@@ -343,13 +343,20 @@ public class TaskController {
 
         boolean allCompleted = true;
         boolean allApproved = true;
+        boolean anyRejected = false;
 
         for (com.edigital.taskpad.model.SubTask s : st) {
+            if (s.isRejectedByAdmin()) anyRejected = true;
             if (!s.isCompleted()) allCompleted = false;
             if (!s.isApprovedByAdmin()) allApproved = false;
         }
 
-        if (allCompleted && allApproved) {
+        if (anyRejected) {
+            // If any subtask is rejected, move away from Completed
+            if ("Completed".equalsIgnoreCase(task.getStatus())) {
+                task.setStatus("Pending");
+            }
+        } else if (allCompleted && allApproved) {
             task.setStatus("Completed");
         } else {
             // Do not auto-complete; move away from Completed if workflow not satisfied
@@ -536,6 +543,118 @@ public class TaskController {
             if (s.getId() != null && subtaskIds.contains(s.getId())) {
                 s.setApprovedByAdmin(true);
                 s.setApprovedByAdminAt(timestamp);
+                // Clear any previous rejection when approving
+                s.setRejectedByAdmin(false);
+                s.setRejectedByAdminAt(null);
+                updated = true;
+            }
+        }
+
+        if (!updated) {
+            return ResponseEntity.notFound().build();
+        }
+
+        task.setSubTasks(subtasks);
+        recomputeTaskStatusFromSubTasks(task);
+        Task saved = taskRepository.save(task);
+        return ResponseEntity.ok(saved);
+    }
+
+    // ── Subtask Reject Endpoints ──────────────────────────────────────────────
+
+    @PostMapping("/{taskId}/subtasks/{subtaskId}/reject")
+    public ResponseEntity<Task> rejectSubTask(
+            @PathVariable String taskId,
+            @PathVariable String subtaskId
+    ) {
+        Optional<Task> optionalTask = taskRepository.findById(taskId);
+        if (optionalTask.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Task task = optionalTask.get();
+        List<com.edigital.taskpad.model.SubTask> subtasks = task.getSubTasks();
+        if (subtasks == null || subtasks.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        boolean updated = false;
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        for (com.edigital.taskpad.model.SubTask s : subtasks) {
+            if (s.getId() != null && s.getId().equals(subtaskId)) {
+                s.setRejectedByAdmin(true);
+                s.setRejectedByAdminAt(timestamp);
+                s.setCompleted(false); // Reset completed so user must redo
+                s.setApprovedByAdmin(false); // Clear any prior approval
+                s.setApprovedByAdminAt(null);
+                updated = true;
+                break;
+            }
+        }
+
+        if (!updated) {
+            return ResponseEntity.notFound().build();
+        }
+
+        task.setSubTasks(subtasks);
+        recomputeTaskStatusFromSubTasks(task);
+        Task saved = taskRepository.save(task);
+        return ResponseEntity.ok(saved);
+    }
+
+    @PostMapping("/{taskId}/subtasks/reject-all")
+    public ResponseEntity<Task> rejectAllSubTasks(@PathVariable String taskId) {
+        Optional<Task> optionalTask = taskRepository.findById(taskId);
+        if (optionalTask.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Task task = optionalTask.get();
+        List<com.edigital.taskpad.model.SubTask> subtasks = task.getSubTasks();
+        if (subtasks == null || subtasks.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        for (com.edigital.taskpad.model.SubTask s : subtasks) {
+            if (!s.isApprovedByAdmin() && !s.isRejectedByAdmin()) {
+                s.setRejectedByAdmin(true);
+                s.setRejectedByAdminAt(timestamp);
+                s.setCompleted(false); // Reset completed so user must redo
+            }
+        }
+
+        task.setSubTasks(subtasks);
+        recomputeTaskStatusFromSubTasks(task);
+        Task saved = taskRepository.save(task);
+        return ResponseEntity.ok(saved);
+    }
+
+    @PostMapping("/{taskId}/subtasks/reject-bulk")
+    public ResponseEntity<Task> rejectBulkSubTasks(
+            @PathVariable String taskId,
+            @RequestBody List<String> subtaskIds
+    ) {
+        Optional<Task> optionalTask = taskRepository.findById(taskId);
+        if (optionalTask.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Task task = optionalTask.get();
+        List<com.edigital.taskpad.model.SubTask> subtasks = task.getSubTasks();
+        if (subtasks == null || subtasks.isEmpty() || subtaskIds == null || subtaskIds.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        boolean updated = false;
+        for (com.edigital.taskpad.model.SubTask s : subtasks) {
+            if (s.getId() != null && subtaskIds.contains(s.getId())) {
+                s.setRejectedByAdmin(true);
+                s.setRejectedByAdminAt(timestamp);
+                s.setCompleted(false); // Reset completed so user must redo
+                s.setApprovedByAdmin(false);
+                s.setApprovedByAdminAt(null);
                 updated = true;
             }
         }

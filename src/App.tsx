@@ -197,6 +197,44 @@ export default function App() {
     setTasksLoaded(false);
   };
 
+  // ── Edit Task State ────────────────────────────────────────────────────────
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task);
+    setIsAddTaskModalOpen(true);
+  };
+
+  const handleUpdateTask = async (updatedTask: Task) => {
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${updatedTask.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedTask),
+      });
+      if (res.ok) {
+        const saved: Task = await res.json();
+        setTasks(prev => prev.map(t => t.id === saved.id ? saved : t));
+        if (selectedTaskForDetails?.id === saved.id) setSelectedTaskForDetails(saved);
+        addNotification({
+          type: 'success',
+          title: 'Task Updated',
+          message: `Task "${saved.name}" updated successfully`,
+        });
+      }
+    } catch {
+      setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+      if (selectedTaskForDetails?.id === updatedTask.id) setSelectedTaskForDetails(updatedTask);
+    }
+    setEditingTask(null);
+    setIsAddTaskModalOpen(false);
+  };
+
+  const handleCloseAddTaskModal = () => {
+    setEditingTask(null);
+    setIsAddTaskModalOpen(false);
+  };
+
   // ── Task CRUD handlers ────────────────────────────────────────────────────
 
   const handleToggleTaskStatus = async (taskId: string) => {
@@ -700,20 +738,6 @@ export default function App() {
                           onProjectSelect={setSelectedProject}
                           selectedProject={selectedProject}
                         />
-                        <TaskTable
-                          theme={theme}
-                          tasks={displayedTableTasks}
-                          onToggleStatus={handleToggleTaskStatus}
-                          onAddTaskClick={() => setIsAddTaskModalOpen(true)}
-                          onDuplicateTask={(taskId) => handleDuplicateTask(taskId)}
-                          onDeleteTask={(taskId) => handleDeleteTask(taskId)}
-                          onBulkDeleteTasks={handleBulkDeleteTasks}
-                          onSubmitDraft={handleSubmitDraft}
-                          onSelectTask={handleSelectTaskForDetails}
-                          onUpdateTaskStatus={handleUpdateTaskStatus}
-                          onBulkApproveReject={handleBulkApproveReject}
-                          isSubtaskFilterMode={taskFilterMode === 'subtask' || taskFilterMode === 'subtask-approved'}
-                        />
                       </div>
                       <div className="lg:col-span-4 space-y-8">
                         <PriorityTaskSummary theme={theme} tasks={tasks} />
@@ -867,8 +891,10 @@ case 'Projects':
       <TaskModal
         theme={theme}
         isOpen={isAddTaskModalOpen}
-        onClose={() => setIsAddTaskModalOpen(false)}
+        onClose={handleCloseAddTaskModal}
         onSave={handleAddTask}
+        onUpdate={handleUpdateTask}
+        editingTask={editingTask}
         users={users}
         loggedInUser={loggedInUser}
       />
@@ -881,6 +907,7 @@ case 'Projects':
         onClose={() => setIsDetailsPanelOpen(false)}
         onSave={handleSaveTaskDetails}
         onDeleteTask={(taskId) => handleDeleteTask(taskId)}
+        onEditTask={handleEditTask}
         users={users}
         loggedInUser={loggedInUser}
       />

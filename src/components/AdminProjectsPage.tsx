@@ -246,7 +246,7 @@ export default function AdminProjectsPage() {
             <div className="min-w-[820px] grid gap-4">
               <div className="grid grid-cols-[1.4fr_0.8fr_0.8fr_0.7fr] gap-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider px-2">
                 <div>Project</div>
-                <div className="text-right">Timeline</div>
+                <div className="text-right">Date / Timeline</div>
                 <div className="text-right">Progress</div>
                 <div className="text-right">Actions</div>
               </div>
@@ -278,15 +278,16 @@ export default function AdminProjectsPage() {
                       </div>
                     </div>
 
-                    {/* Timeline */}
-                    <div className="text-right text-xs text-slate-500">
-                      {p.hasEndDate ? (
-                        <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 font-bold">
-                          Ends {p.endDate}
+                    {/* Date / Timeline */}
+                    <div className="text-right text-xs text-slate-400 flex flex-col items-end gap-1">
+                      {p.hasEndDate && p.endDate ? (
+                        <span className="px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 font-bold flex items-center gap-1">
+                          <span>📅 End Date:</span>
+                          <span className="text-white">{p.endDate}</span>
                         </span>
                       ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-300 font-bold">
-                          No end date
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-800/60 border border-slate-700/50 text-slate-300 font-medium flex items-center gap-1">
+                          <span>📅 Ongoing Project</span>
                         </span>
                       )}
                     </div>
@@ -356,13 +357,24 @@ export default function AdminProjectsPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Color (CSS color)</label>
-                <input
-                  value={form.color || ''}
-                  onChange={(e) => setForm((p) => ({ ...p, color: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
-                  placeholder="#0ea5e9"
-                />
+                <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Project Color</label>
+                <div className="flex items-center gap-3">
+                  <div className="relative w-10 h-10 rounded-xl overflow-hidden border border-slate-700 shrink-0">
+                    <input
+                      type="color"
+                      value={form.color || '#0ea5e9'}
+                      onChange={(e) => setForm((p) => ({ ...p, color: e.target.value }))}
+                      className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer border-none p-0 bg-transparent"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    value={form.color || ''}
+                    onChange={(e) => setForm((p) => ({ ...p, color: e.target.value }))}
+                    className="flex-1 px-3 py-2.5 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
+                    placeholder="#0ea5e9"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

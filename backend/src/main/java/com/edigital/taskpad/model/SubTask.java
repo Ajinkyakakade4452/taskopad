@@ -12,6 +12,10 @@ public class SubTask {
     private boolean approvedByAdmin;
     private String approvedByAdminAt;
 
+    // Admin rejection: when admin rejects, completed is reset to false so user can redo
+    private boolean rejectedByAdmin;
+    private String rejectedByAdminAt;
+
     // Subtask-level comments (admin + user)
     private List<Comment> comments;
 
@@ -24,6 +28,8 @@ public class SubTask {
         this.completed = completed;
         this.approvedByAdmin = false;
         this.approvedByAdminAt = null;
+        this.rejectedByAdmin = false;
+        this.rejectedByAdminAt = null;
         this.comments = null;
     }
 
@@ -33,6 +39,8 @@ public class SubTask {
         this.completed = completed;
         this.approvedByAdmin = approvedByAdmin;
         this.approvedByAdminAt = approvedByAdminAt;
+        this.rejectedByAdmin = false;
+        this.rejectedByAdminAt = null;
         this.comments = null;
     }
 
@@ -54,6 +62,12 @@ public class SubTask {
 
     public String getApprovedByAdminAt() { return approvedByAdminAt; }
     public void setApprovedByAdminAt(String approvedByAdminAt) { this.approvedByAdminAt = approvedByAdminAt; }
+
+    public boolean isRejectedByAdmin() { return rejectedByAdmin; }
+    public void setRejectedByAdmin(boolean rejectedByAdmin) { this.rejectedByAdmin = rejectedByAdmin; }
+
+    public String getRejectedByAdminAt() { return rejectedByAdminAt; }
+    public void setRejectedByAdminAt(String rejectedByAdminAt) { this.rejectedByAdminAt = rejectedByAdminAt; }
 
     public List<Comment> getComments() { return comments; }
     public void setComments(List<Comment> comments) { this.comments = comments; }

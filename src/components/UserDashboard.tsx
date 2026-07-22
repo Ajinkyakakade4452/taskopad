@@ -35,6 +35,7 @@ import {
   Loader2,
   Paperclip,
   Trash2,
+  ThumbsDown,
 } from 'lucide-react';
 import { Task, TaskStatus } from '../types';
 import ProjectsSection from './ProjectsSection';
@@ -196,59 +197,6 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [selectedBulkDeleteIds, setSelectedBulkDeleteIds] = useState<Set<string>>(new Set());
-
-  const handleBulkDeleteTasks = async (taskIds: string[]) => {
-    if (!taskIds || taskIds.length === 0) return;
-    try {
-      const res = await fetch(`${API_BASE}/tasks/bulk-delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskIds }),
-      });
-      if (res.ok) {
-        setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
-        if (selectedTask && taskIds.includes(selectedTask.id)) setSelectedTask(null);
-        addNotification({
-          type: 'success',
-          title: 'Bulk Delete',
-          message: `${taskIds.length} task(s) deleted successfully`,
-        });
-      } else {
-        // optimistic local delete on failure
-        setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
-        addNotification({
-          type: 'success',
-          title: 'Bulk Delete',
-          message: `${taskIds.length} task(s) deleted successfully`,
-        });
-      }
-    } catch {
-      // optimistic local delete on failure
-      setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
-      addNotification({
-        type: 'success',
-        title: 'Bulk Delete',
-        message: `${taskIds.length} task(s) deleted successfully`,
-      });
-    }
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId);
-    try {
-      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setTasks(prev => prev.filter(t => t.id !== taskId));
-        if (selectedTask?.id === taskId) setSelectedTask(null);
-      }
-    } catch {
-      setTasks(prev => prev.filter(t => t.id !== taskId));
-      if (selectedTask?.id === taskId) setSelectedTask(null);
-    }
-  };
 
   const [newAttachmentName, setNewAttachmentName] = useState('');
   const [fileToUpload, setFileToUpload] = useState<File | null>(null);
@@ -387,7 +335,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
         );
 
         return matchesName || matchesEmail;
-      });
+      }).filter(t => t.status !== 'Completed');
 
       setTasks(myTasks);
     } catch {
@@ -795,58 +743,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
         </div>
       </div>
 
-      {/* Bulk Delete toolbar for today, upcoming, overdue tabs */}
-      {(activeTab === 'today' || activeTab === 'upcoming' || activeTab === 'overdue') && activeList.length > 0 && (
-        <div className="flex items-center gap-2 px-6 py-2.5 border-b border-slate-800/50 bg-rose-500/8">
-          <button
-            onClick={() => {
-              const ids = activeList.map(t => t.id);
-              setSelectedBulkDeleteIds(prev => 
-                prev.size === ids.length ? new Set() : new Set(ids)
-              );
-            }}
-            className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-white transition px-2 py-1 rounded-lg hover:bg-slate-800/50"
-          >
-            {selectedBulkDeleteIds.size === activeList.length ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-            {selectedBulkDeleteIds.size === activeList.length ? 'Deselect All' : 'Select All'}
-          </button>
-          <span className="text-[10px] text-slate-500 font-mono">
-            {selectedBulkDeleteIds.size} of {activeList.length} selected
-          </span>
-          {selectedBulkDeleteIds.size > 0 && (
-            <>
-              <div className="w-px h-5 bg-slate-700/50 mx-1" />
-              <button
-                onClick={() => {
-                  if (window.confirm(`Are you sure you want to delete ${selectedBulkDeleteIds.size} selected task(s)?`)) {
-                    handleBulkDeleteTasks(Array.from(selectedBulkDeleteIds));
-                    setSelectedBulkDeleteIds(new Set());
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/35 transition"
-              >
-                <Trash2 className="w-3 h-3" />
-                Delete Selected ({selectedBulkDeleteIds.size})
-              </button>
-            </>
-          )}
-          <div className="ml-auto">
-            <button
-              onClick={() => {
-                const tabLabel = activeTab === 'today' ? 'Today & Future' : activeTab === 'upcoming' ? 'Upcoming' : 'Overdue Queue';
-                if (window.confirm(`Delete ALL ${activeList.length} ${tabLabel} tasks? This cannot be undone.`)) {
-                  handleBulkDeleteTasks(activeList.map(t => t.id));
-                  setSelectedBulkDeleteIds(new Set());
-                }
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/30 text-red-400 border border-red-500/40 hover:bg-red-500/45 transition"
-            >
-              <Trash2 className="w-3 h-3" />
-              Delete All {activeTab === 'today' ? 'Today & Future' : activeTab === 'upcoming' ? 'Upcoming' : 'Overdue Queue'} ({activeList.length})
-            </button>
-          </div>
-        </div>
-      )}
+      {/* NOTE: Delete controls intentionally omitted — users cannot delete tasks */}
 
       {/* Task List */}
       <div className="flex-1 overflow-auto custom-scrollbar">
@@ -987,18 +884,6 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                         {sc.label}
                       </span>
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (window.confirm(`Are you sure you want to delete "${task.name}"?`)) {
-                            handleDeleteTask(task.id);
-                          }
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition"
-                        title="Delete task"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1168,35 +1053,58 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                 <div>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Sub Tasks</p>
                   <div className="space-y-2">
-                    {selectedTask.subTasks.map((st) => (
-                      <button
-                        key={st.id}
-                        onClick={() => handleToggleSubTask(selectedTask, st.id)}
-                        className={`w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition cursor-pointer group ${
-                          (st as any).completed
-                            ? 'bg-emerald-500/8 border-emerald-500/20 hover:bg-emerald-500/15'
-                            : 'bg-slate-800/30 border-slate-700/20 hover:bg-slate-700/40'
-                        }`}
-                      >
-                        {(st as any).completed ? (
-                          <CheckSquare className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                        ) : (
-                          <Square className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 flex-shrink-0 transition" />
-                        )}
-                        <span className={`text-xs text-left flex-1 transition ${
-                          (st as any).completed ? 'line-through text-slate-500' : 'text-slate-200 group-hover:text-white'
-                        }`}>
-                          {st.name}
-                        </span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0 ${
-                          (st as any).completed
-                            ? 'bg-emerald-500/10 text-emerald-400'
-                            : 'bg-amber-500/10 text-amber-400'
-                        }`}>
-                          {(st as any).completed ? 'Done' : 'Pending'}
-                        </span>
-                      </button>
-                    ))}
+                    {selectedTask.subTasks.map((st: any) => {
+                      const isRejected = st.rejectedByAdmin === true;
+                      const isApproved = st.approvedByAdmin === true && st.completed;
+                      return (
+                        <button
+                          key={st.id}
+                          onClick={() => {
+                            if (isRejected) return; // Can't toggle rejected subtasks, user needs to redo from TaskModal
+                            handleToggleSubTask(selectedTask, st.id);
+                          }}
+                          className={`w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition cursor-pointer group ${
+                            isRejected
+                              ? 'bg-red-500/8 border-red-500/20 hover:bg-red-500/15'
+                              : isApproved
+                              ? 'bg-emerald-500/8 border-emerald-500/20 hover:bg-emerald-500/15'
+                              : 'bg-slate-800/30 border-slate-700/20 hover:bg-slate-700/40'
+                          }`}
+                        >
+                          {isRejected ? (
+                            <ThumbsDown className="w-4 h-4 text-red-500 flex-shrink-0" />
+                          ) : isApproved ? (
+                            <CheckSquare className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                          ) : st.completed ? (
+                            <CheckSquare className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 flex-shrink-0 transition" />
+                          )}
+                          <span className={`text-xs text-left flex-1 transition ${
+                            isRejected
+                              ? 'line-through text-red-400'
+                              : isApproved
+                              ? 'line-through text-slate-500'
+                              : st.completed
+                              ? 'line-through text-slate-500'
+                              : 'text-slate-200 group-hover:text-white'
+                          }`}>
+                            {st.name}
+                          </span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0 ${
+                            isRejected
+                              ? 'bg-red-500/10 text-red-400'
+                              : isApproved
+                              ? 'bg-emerald-500/10 text-emerald-400'
+                              : st.completed
+                              ? 'bg-emerald-500/10 text-emerald-400'
+                              : 'bg-amber-500/10 text-amber-400'
+                          }`}>
+                            {isRejected ? 'Rejected' : isApproved ? 'Approved' : st.completed ? 'Done' : 'Pending'}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1296,17 +1204,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                 >
                   Close
                 </button>
-                <button
-                  onClick={() => {
-                    if (window.confirm(`Are you sure you want to delete "${selectedTask.name}"? This action cannot be undone.`)) {
-                      handleDeleteTask(selectedTask.id);
-                    }
-                  }}
-                  className="px-4 py-2 text-xs font-semibold text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg hover:bg-red-500/15 transition flex items-center gap-1.5"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Task
-                </button>
+                {/* Delete button intentionally omitted — users cannot delete tasks */}
               </div>
               {/* Mark as Completed — submits for admin review (Under Review) */}
               {(() => {

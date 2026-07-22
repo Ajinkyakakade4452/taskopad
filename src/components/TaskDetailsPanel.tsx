@@ -16,12 +16,13 @@ interface TaskDetailsPanelProps {
   onClose: () => void;
   onSave: (updatedTask: Task) => void;
   onDeleteTask?: (taskId: string) => void;
+  onEditTask?: (task: Task) => void; // Opens the full TaskModal in edit mode
   users: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string }[];
   loggedInUser?: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string; token: string };
 }
 
 
-export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave, onDeleteTask, users, loggedInUser }: TaskDetailsPanelProps) {
+export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave, onDeleteTask, onEditTask, users, loggedInUser }: TaskDetailsPanelProps) {
   // Local edit states
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState('');
@@ -67,17 +68,20 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   const [selectedSubtaskIds, setSelectedSubtaskIds] = useState<Set<string>>(new Set());
 
   // Dropdown list options
-  const projectsList = [
-    'Edigital Knowledge Academy',
-    'Om Associates',
-    'YouGo',
-    'Easy Bank Loans',
-    'My Nest',
-    'Priyal Makeup Institute',
-    'Graphic Designing Batch',
-    'Net Access Internet',
-    'Success Visionary'
-  ];
+  const [projectsList, setProjectsList] = useState<string[]>([]);
+  
+  useEffect(() => {
+    if (isOpen) {
+      fetch('/api/projects')
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setProjectsList(data.map(p => p.name));
+          }
+        })
+        .catch(err => console.error('Failed to fetch projects:', err));
+    }
+  }, [isOpen]);
 
   const teammates = users.map(u => u.name);
 
@@ -253,7 +257,40 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       }
     } catch {
       // fallback: local update
-      const updated = subTasks.map(st => st.id === subId ? { ...st, approvedByAdmin: true } : st);
+      const updated = subTasks.map(st => st.id === subId ? { ...st, approvedByAdmin: true, rejectedByAdmin: false } : st);
+      setSubTasks(updated);
+      const updatedTask: Task = {
+        ...task,
+        subTasks: updated,
+        checklist,
+        comments,
+        timeLogs,
+        documents: attachments,
+        userDocuments: userAttachments,
+      };
+      onSave(updatedTask);
+    }
+  };
+
+  // Reject Subtask (Admin only) — calls backend API
+  const rejectSubTask = async (subId: string) => {
+    if (!task) return;
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/subtasks/${subId}/reject`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const updatedTask: Task = await res.json();
+        setSubTasks(updatedTask.subTasks || []);
+        onSave(updatedTask);
+      }
+    } catch {
+      // fallback: local update
+      const updated = subTasks.map(st =>
+        st.id === subId
+          ? { ...st, rejectedByAdmin: true, completed: false, approvedByAdmin: false }
+          : st
+      );
       setSubTasks(updated);
       const updatedTask: Task = {
         ...task,
@@ -283,7 +320,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       }
     } catch {
       // fallback: local update
-      const updated = subTasks.map(st => ({ ...st, approvedByAdmin: true }));
+      const updated = subTasks.map(st => ({ ...st, approvedByAdmin: true, rejectedByAdmin: false }));
       setSubTasks(updated);
       setSelectedSubtaskIds(new Set());
       const updatedTask: Task = {
@@ -318,7 +355,80 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
     } catch {
       // fallback: local update
       const updated = subTasks.map(st => 
-        selectedSubtaskIds.has(st.id) ? { ...st, approvedByAdmin: true } : st
+        selectedSubtaskIds.has(st.id) ? { ...st, approvedByAdmin: true, rejectedByAdmin: false } : st
+      );
+      setSubTasks(updated);
+      setSelectedSubtaskIds(new Set());
+      const updatedTask: Task = {
+        ...task,
+        subTasks: updated,
+        checklist,
+        comments,
+        timeLogs,
+        documents: attachments,
+        userDocuments: userAttachments,
+      };
+      onSave(updatedTask);
+    }
+  };
+
+  // Reject ALL unapproved subtasks at once — calls backend API
+  const rejectAllSubTasks = async () => {
+    if (!task) return;
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/subtasks/reject-all`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const updatedTask: Task = await res.json();
+        setSubTasks(updatedTask.subTasks || []);
+        setSelectedSubtaskIds(new Set());
+        onSave(updatedTask);
+      }
+    } catch {
+      // fallback: local update
+      const updated = subTasks.map(st =>
+        !st.approvedByAdmin && !st.rejectedByAdmin
+          ? { ...st, rejectedByAdmin: true, completed: false }
+          : st
+      );
+      setSubTasks(updated);
+      setSelectedSubtaskIds(new Set());
+      const updatedTask: Task = {
+        ...task,
+        subTasks: updated,
+        checklist,
+        comments,
+        timeLogs,
+        documents: attachments,
+        userDocuments: userAttachments,
+      };
+      onSave(updatedTask);
+    }
+  };
+
+  // Reject SELECTED subtasks — calls backend API
+  const rejectSelectedSubTasks = async () => {
+    if (!task || selectedSubtaskIds.size === 0) return;
+    const idsArray = Array.from(selectedSubtaskIds);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/subtasks/reject-bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(idsArray),
+      });
+      if (res.ok) {
+        const updatedTask: Task = await res.json();
+        setSubTasks(updatedTask.subTasks || []);
+        setSelectedSubtaskIds(new Set());
+        onSave(updatedTask);
+      }
+    } catch {
+      // fallback: local update
+      const updated = subTasks.map(st =>
+        selectedSubtaskIds.has(st.id)
+          ? { ...st, rejectedByAdmin: true, completed: false, approvedByAdmin: false }
+          : st
       );
       setSubTasks(updated);
       setSelectedSubtaskIds(new Set());
@@ -721,7 +831,13 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               </button>
             ) : (
               <button
-                onClick={() => setIsEditing(true)}
+                onClick={() => {
+                  if (onEditTask && task) {
+                    onEditTask(task);
+                  } else {
+                    setIsEditing(true);
+                  }
+                }}
                 className="px-3.5 py-1.5 rounded-xl bg-slate-800 text-slate-300 border border-slate-700 font-bold text-xs hover:text-white hover:bg-slate-700 flex items-center gap-1 cursor-pointer transition transform active:scale-95"
               >
                 <Edit2 className="w-3.5 h-3.5" />
@@ -1069,7 +1185,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               </span>
             </div>
 
-            {/* Admin actions: Approve All + Select All + Approve Selected */}
+            {/* Admin actions: Approve All + Reject All + Select All + Approve Selected + Reject Selected */}
             {loggedInUser?.role === 'admin' && subTasks.length > 0 && (
               <div className="flex items-center gap-2 flex-wrap">
                 <button
@@ -1078,6 +1194,13 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                 >
                   <ThumbsUp className="w-3.5 h-3.5" />
                   Approve All
+                </button>
+                <button
+                  onClick={rejectAllSubTasks}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/35 transition cursor-pointer"
+                >
+                  <ThumbsDown className="w-3.5 h-3.5" />
+                  Reject All
                 </button>
                 <button
                   onClick={toggleSelectAllSubTasks}
@@ -1090,13 +1213,22 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                   })()}
                 </button>
                 {selectedSubtaskIds.size > 0 && (
-                  <button
-                    onClick={approveSelectedSubTasks}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/35 transition cursor-pointer"
-                  >
-                    <ThumbsUp className="w-3.5 h-3.5" />
-                    Approve Selected ({selectedSubtaskIds.size})
-                  </button>
+                  <>
+                    <button
+                      onClick={approveSelectedSubTasks}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/35 transition cursor-pointer"
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                      Approve Selected ({selectedSubtaskIds.size})
+                    </button>
+                    <button
+                      onClick={rejectSelectedSubTasks}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/35 transition cursor-pointer"
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                      Reject Selected ({selectedSubtaskIds.size})
+                    </button>
+                  </>
                 )}
               </div>
             )}
@@ -1122,10 +1254,36 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               {subTasks.map(st => (
                 <div 
                   key={st.id} 
-                  className={`rounded-xl border transition overflow-hidden ${
-                    theme === 'dark' ? 'border-slate-800/50 bg-[#141C38]/40 hover:bg-[#141C38]/70' : 'border-slate-100 bg-slate-50 hover:bg-slate-100/50'
+                  className={`rounded-xl border transition overflow-hidden flex ${
+                    st.approvedByAdmin
+                      ? theme === 'dark'
+                        ? 'border-emerald-500/40 bg-emerald-500/8 hover:bg-emerald-500/12'
+                        : 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100/50'
+                      : (st as any).rejectedByAdmin
+                      ? theme === 'dark'
+                        ? 'border-red-500/40 bg-red-500/8 hover:bg-red-500/12'
+                        : 'border-red-300 bg-red-50 hover:bg-red-100/50'
+                      : st.completed
+                      ? theme === 'dark'
+                        ? 'border-blue-500/30 bg-blue-500/6 hover:bg-blue-500/10'
+                        : 'border-blue-200 bg-blue-50 hover:bg-blue-100/50'
+                      : theme === 'dark'
+                      ? 'border-slate-800/50 bg-[#141C38]/40 hover:bg-[#141C38]/70'
+                      : 'border-slate-100 bg-slate-50 hover:bg-slate-100/50'
                   }`}
                 >
+                  {/* Color accent strip on left */}
+                  <div className={`w-1 self-stretch flex-shrink-0 ${
+                    st.approvedByAdmin
+                      ? 'bg-emerald-400'
+                      : (st as any).rejectedByAdmin
+                      ? 'bg-red-400'
+                      : st.completed
+                      ? 'bg-blue-400'
+                      : 'bg-amber-400/60'
+                  }`} />
+                  {/* Content wrapper */}
+                  <div className="flex-1 flex flex-col">
                   {/* Subtask main row */}
                   <div className="flex items-center gap-3 p-2.5">
                     {/* Selection checkbox for admin */}
@@ -1163,13 +1321,27 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                       <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
                         Approved
                       </span>
+                    ) : st.rejectedByAdmin ? (
+                      <span className="text-[10px] font-bold text-red-400 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20">
+                        Rejected
+                      </span>
                     ) : (
-                      <button
-                        onClick={() => approveSubTask(st.id)}
-                        className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer"
-                      >
-                        Approve
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => approveSubTask(st.id)}
+                          className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer"
+                          title="Approve subtask"
+                        >
+                          <ThumbsUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => rejectSubTask(st.id)}
+                          className="text-[10px] font-bold text-red-400 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition cursor-pointer"
+                          title="Reject subtask (user will need to redo)"
+                        >
+                          <ThumbsDown className="w-3 h-3" />
+                        </button>
+                      </div>
                     )}
                   </div>
                   
@@ -1222,6 +1394,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                       </form>
                     </div>
                   )}
+                  </div>{/* end content wrapper */}
                 </div>
               ))}
             </div>

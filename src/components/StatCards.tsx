@@ -40,6 +40,7 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
   const totalTaskCount = safeTasks.length;
 
   const allSubtaskCount = safeTasks.reduce((sum, t) => sum + (t?.subTasks?.length || 0), 0);
+  const approvedSubtaskCount = safeTasks.reduce((sum, t) => sum + (t?.subTasks?.filter(st => st?.approvedByAdmin === true).length || 0), 0);
   const pendingApprovalSubtaskCount = safeTasks.reduce((sum, t) => sum + (t?.subTasks?.filter(st => st?.completed === true && st?.approvedByAdmin !== true).length || 0), 0);
   const pendingSubtaskCount = safeTasks.reduce((sum, t) => sum + (t?.subTasks?.filter(st => !st?.completed).length || 0), 0);
   const clientApprovedTasks = safeTasks.filter(t => t?.status === 'Under Review');
@@ -117,7 +118,7 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
               }}
               whileHover={{ y: -4, scale: 1.01 }}
               transition={{ duration: 0.2 }}
-              className={`p-5 rounded-2xl border transition-all duration-300 shadow-sm flex items-center justify-between group ${
+              className={`p-5 rounded-2xl border transition-all duration-300 shadow-sm flex items-start justify-between group ${
                 stat.filterValue ? 'cursor-pointer ' : ''
               }${
                 isActive
@@ -143,10 +144,31 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
                 <h4 className="text-3xl font-extrabold font-mono tracking-tight leading-none">
                   {stat.value}
                 </h4>
-                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
-                  <span className="text-emerald-400 font-bold">▲ +12%</span>
-                  <span>vs last month</span>
-                </div>
+                {/* Approved/Pending breakdown for All Subtask card */}
+                {stat.filterValue === 'subtask' ? (
+                  <div className="flex flex-col gap-1">
+                    {/* Approved by admin */}
+                    <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block flex-shrink-0" />
+                      {approvedSubtaskCount} Approved
+                    </span>
+                    {/* User completed, waiting admin approval */}
+                    <span className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 inline-block flex-shrink-0 animate-pulse" />
+                      {pendingApprovalSubtaskCount} Sent for Approval
+                    </span>
+                    {/* Not started by user */}
+                    <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+                      <span className="w-2 h-2 rounded-full bg-slate-500 inline-block flex-shrink-0" />
+                      {pendingSubtaskCount} Not Done
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
+                    <span className="text-emerald-400 font-bold">▲ +12%</span>
+                    <span>vs last month</span>
+                  </div>
+                )}
               </div>
 
               {/* Decorative Icon */}

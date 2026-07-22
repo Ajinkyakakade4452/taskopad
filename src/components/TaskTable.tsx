@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Check, CheckCircle2, Circle, Clock, Flame, Star, AlertCircle, Send, ThumbsUp, ThumbsDown, Square, CheckSquare, Trash2 } from 'lucide-react';
+import { Check, CheckCircle2, Circle, Clock, Flame, Star, AlertCircle, Send, ThumbsUp, ThumbsDown, Square, CheckSquare, Trash2, Search, Filter, RotateCcw } from 'lucide-react';
 import { Task, Priority, TaskStatus } from '../types';
 
 interface TaskTableProps {
@@ -32,7 +32,7 @@ export default function TaskTable({
   onBulkApproveReject,
   isSubtaskFilterMode = false
 }: TaskTableProps) {
-  const [activeGroupTab, setActiveGroupTab] = useState<'today' | 'upcoming' | 'overdue' | 'review' | 'drafts'>('today');
+  const [activeGroupTab, setActiveGroupTab] = useState<'all' | 'today' | 'upcoming' | 'overdue' | 'review' | 'drafts'>('today');
   // ids of tasks currently showing tick animation
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   // ids of tasks currently fading out
@@ -42,12 +42,21 @@ export default function TaskTable({
   // Bulk selection state for Delete (used in today, upcoming, overdue tabs)
   const [selectedBulkDeleteIds, setSelectedBulkDeleteIds] = useState<Set<string>>(new Set());
 
+  // Filter States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterProject, setFilterProject] = useState('all');
+  const [filterAssignee, setFilterAssignee] = useState('all');
+  const [filterPriority, setFilterPriority] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterDueDate, setFilterDueDate] = useState('');
+
   // Tabs that support bulk delete
-  const bulkDeleteTabs = new Set(['today', 'upcoming', 'overdue']);
+  const bulkDeleteTabs = new Set(['all', 'today', 'upcoming', 'overdue']);
   const isBulkDeleteTab = bulkDeleteTabs.has(activeGroupTab);
 
   // Labels for each tab's bulk delete section
   const tabLabels: Record<string, string> = {
+    all: 'All Tasks',
     today: 'Today & Future',
     upcoming: 'Upcoming',
     overdue: 'Overdue Queue',
@@ -104,6 +113,8 @@ export default function TaskTable({
 
   const displayedTasks = isSubtaskFilterMode
     ? allTasks // Show all pseudo-subtasks when in subtask mode
+    : activeGroupTab === 'all'
+    ? allTasks
     : activeGroupTab === 'today'
     ? todayTasks
     : activeGroupTab === 'upcoming'
@@ -113,6 +124,27 @@ export default function TaskTable({
     : activeGroupTab === 'review'
     ? reviewTasks
     : draftTasks;
+
+  // Extract unique options for dropdowns
+  const uniqueProjects = Array.from(new Set(tasks.flatMap(t => t.projects && t.projects.length > 0 ? t.projects : (t.project ? [t.project] : [])))).filter(Boolean);
+  const uniqueAssignees = Array.from(new Set(tasks.flatMap(t => t.assignees && t.assignees.length > 0 ? t.assignees : (t.assignTo ? [t.assignTo] : [])))).filter(Boolean);
+
+  // Apply multi-filter matching
+  const filteredTasks = displayedTasks.filter(t => {
+    if (searchQuery.trim() && !t.name.toLowerCase().includes(searchQuery.toLowerCase().trim())) return false;
+    if (filterProject !== 'all') {
+      const taskProjs = t.projects && t.projects.length > 0 ? t.projects : (t.project ? [t.project] : []);
+      if (!taskProjs.includes(filterProject)) return false;
+    }
+    if (filterAssignee !== 'all') {
+      const taskAssignees = t.assignees && t.assignees.length > 0 ? t.assignees : (t.assignTo ? [t.assignTo] : []);
+      if (!taskAssignees.includes(filterAssignee)) return false;
+    }
+    if (filterPriority !== 'all' && t.priority !== filterPriority) return false;
+    if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+    if (filterDueDate && t.dueDate !== filterDueDate) return false;
+    return true;
+  });
 
   // Helper for initials
   const getInitials = (name: string) => {
@@ -176,6 +208,27 @@ export default function TaskTable({
       {/* Grouping/Queue Segments - only show when not in subtask mode */}
       {!isSubtaskFilterMode && (
         <div className="flex flex-wrap items-center gap-2 mb-6 border-b border-slate-800/10 pb-4 select-none">
+          <button
+            onClick={() => setActiveGroupTab('all')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeGroupTab === 'all'
+                ? theme === 'dark'
+                  ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                  : 'bg-cyan-500 text-white shadow-sm'
+                : theme === 'dark'
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <span>📋 All Tasks</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+              activeGroupTab === 'all'
+                ? theme === 'dark' ? 'bg-cyan-400/20 text-cyan-300' : 'bg-white/20 text-white'
+                : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+            }`}>
+              {allTasks.length}
+            </span>
+          </button>
           <button
             onClick={() => setActiveGroupTab('today')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
@@ -288,9 +341,118 @@ export default function TaskTable({
         </div>
       )}
 
+      {/* Filter Toolbar (Search, Project, Employee, Priority, Status, Date) */}
+      <div className={`p-3.5 rounded-xl mb-4 border flex flex-wrap items-center gap-2.5 ${
+        theme === 'dark' ? 'bg-[#0D1631]/80 border-slate-800/80' : 'bg-slate-50 border-slate-200'
+      }`}>
+        {/* Search */}
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search tasks..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border outline-none transition ${
+              theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-200 focus:border-cyan-500' : 'bg-white border-slate-300 text-slate-800 focus:border-cyan-500'
+            }`}
+          />
+        </div>
+
+        {/* Project Filter */}
+        <select
+          value={filterProject}
+          onChange={(e) => setFilterProject(e.target.value)}
+          className={`px-2.5 py-1.5 text-xs rounded-lg border outline-none cursor-pointer transition ${
+            theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+          }`}
+        >
+          <option value="all">📁 All Projects</option>
+          {uniqueProjects.map(p => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+
+        {/* Employee/Assignee Filter */}
+        <select
+          value={filterAssignee}
+          onChange={(e) => setFilterAssignee(e.target.value)}
+          className={`px-2.5 py-1.5 text-xs rounded-lg border outline-none cursor-pointer transition ${
+            theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+          }`}
+        >
+          <option value="all">👤 All Employees</option>
+          {uniqueAssignees.map(a => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>
+
+        {/* Priority Filter */}
+        <select
+          value={filterPriority}
+          onChange={(e) => setFilterPriority(e.target.value)}
+          className={`px-2.5 py-1.5 text-xs rounded-lg border outline-none cursor-pointer transition ${
+            theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+          }`}
+        >
+          <option value="all">⚡ All Priorities</option>
+          <option value="Critical">Critical</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+
+        {/* Status Filter */}
+        <select
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+          className={`px-2.5 py-1.5 text-xs rounded-lg border outline-none cursor-pointer transition ${
+            theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+          }`}
+        >
+          <option value="all">📌 All Statuses</option>
+          <option value="Pending">Pending</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Under Review">Under Review</option>
+          <option value="Completed">Completed</option>
+          <option value="Approved">Approved</option>
+        </select>
+
+        {/* Date Filter */}
+        <div className="flex items-center gap-1">
+          <input
+            type="date"
+            value={filterDueDate}
+            onChange={(e) => setFilterDueDate(e.target.value)}
+            className={`px-2.5 py-1.5 text-xs rounded-lg border outline-none cursor-pointer transition ${
+              theme === 'dark' ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+            }`}
+            title="Filter by Due Date"
+          />
+        </div>
+
+        {/* Reset Filters button if any active */}
+        {(searchQuery || filterProject !== 'all' || filterAssignee !== 'all' || filterPriority !== 'all' || filterStatus !== 'all' || filterDueDate) && (
+          <button
+            onClick={() => {
+              setSearchQuery('');
+              setFilterProject('all');
+              setFilterAssignee('all');
+              setFilterPriority('all');
+              setFilterStatus('all');
+              setFilterDueDate('');
+            }}
+            className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 transition flex items-center gap-1 cursor-pointer"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Reset</span>
+          </button>
+        )}
+      </div>
+
       {/* Compute review tasks in current displayed list for bulk toolbar */}
       {(() => {
-        const displayedReviewTasks = displayedTasks.filter(t => t.status === 'Under Review');
+        const displayedReviewTasks = filteredTasks.filter(t => t.status === 'Under Review');
         const hasReviewTasks = displayedReviewTasks.length > 0;
         if (!onBulkApproveReject || !hasReviewTasks) return null;
         return (
@@ -336,24 +498,24 @@ export default function TaskTable({
       })()}
 
       {/* Bulk Delete toolbar for today, upcoming, overdue tabs */}
-      {isBulkDeleteTab && onBulkDeleteTasks && displayedTasks.length > 0 && (
+      {isBulkDeleteTab && onBulkDeleteTasks && filteredTasks.length > 0 && (
         <div className={`flex items-center gap-2 mb-3 px-4 py-2.5 rounded-xl border ${
           theme === 'dark' ? 'bg-rose-500/8 border-rose-500/25' : 'bg-rose-50 border-rose-200'
         }`}>
           <button
             onClick={() => {
-              const ids = displayedTasks.map(t => t.id);
+              const ids = filteredTasks.map(t => t.id);
               setSelectedBulkDeleteIds(prev => 
                 prev.size === ids.length ? new Set() : new Set(ids)
               );
             }}
             className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-white transition px-2 py-1 rounded-lg hover:bg-slate-800/50"
           >
-            {selectedBulkDeleteIds.size === displayedTasks.length ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-            {selectedBulkDeleteIds.size === displayedTasks.length ? 'Deselect All' : 'Select All'}
+            {selectedBulkDeleteIds.size === filteredTasks.length ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+            {selectedBulkDeleteIds.size === filteredTasks.length ? 'Deselect All' : 'Select All'}
           </button>
           <span className="text-[10px] text-slate-500 font-mono">
-            {selectedBulkDeleteIds.size} of {displayedTasks.length} selected
+            {selectedBulkDeleteIds.size} of {filteredTasks.length} selected
           </span>
           {selectedBulkDeleteIds.size > 0 && (
             <>
@@ -375,15 +537,15 @@ export default function TaskTable({
           <div className="ml-auto">
             <button
               onClick={() => {
-                if (window.confirm(`Delete ALL ${displayedTasks.length} ${tabLabels[activeGroupTab] || ''} tasks? This cannot be undone.`)) {
-                  onBulkDeleteTasks(displayedTasks.map(t => t.id));
+                if (window.confirm(`Delete ALL ${filteredTasks.length} ${tabLabels[activeGroupTab] || ''} tasks? This cannot be undone.`)) {
+                  onBulkDeleteTasks(filteredTasks.map(t => t.id));
                   setSelectedBulkDeleteIds(new Set());
                 }
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/30 text-red-400 border border-red-500/40 hover:bg-red-500/45 transition"
             >
               <Trash2 className="w-3 h-3" />
-              Delete All {tabLabels[activeGroupTab] || ''} ({displayedTasks.length})
+              Delete All {tabLabels[activeGroupTab] || ''} ({filteredTasks.length})
             </button>
           </div>
         </div>
@@ -419,18 +581,18 @@ export default function TaskTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/10">
-            {displayedTasks.length === 0 ? (
+            {filteredTasks.length === 0 ? (
               <tr>
                 <td colSpan={onBulkApproveReject && allTasks.some(t => t.status === 'Under Review') ? 7 : 6} className="px-5 py-12 text-center text-slate-400 select-none">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <CheckCircle2 className="w-8 h-8 text-slate-600 animate-pulse" />
-                    <p className="font-semibold text-xs text-slate-300">No tasks found in this queue segment</p>
-                    <p className="text-[10px] text-slate-500 font-medium">All clear! Relax or create a new live task</p>
+                    <p className="font-semibold text-xs text-slate-300">No tasks found matching current filters</p>
+                    <p className="text-[10px] text-slate-500 font-medium">Try clearing or adjusting search & filter criteria</p>
                   </div>
                 </td>
               </tr>
             ) : (
-              displayedTasks.map((task) => {
+              filteredTasks.map((task) => {
               const initials = getInitials(task.assignTo);
               const avatarClass = getAvatarBgColor(initials);
               const isCompleted = task.status === 'Completed';
@@ -509,11 +671,21 @@ export default function TaskTable({
                         />
                       </button>
 
-                      <div className="space-y-0.5">
+                      <div className="space-y-0.5 flex flex-col items-start">
                         <p className={`font-semibold text-xs leading-normal transition cursor-pointer hover:text-cyan-400 hover:underline underline-offset-2 group-hover:text-cyan-400 ${showTick ? 'line-through text-slate-400' : ''}`}
                           style={{ transition: 'all 0.3s ease' }}>
                           {task.name}
                         </p>
+                        {/* Subtask Blue Highlight Badge */}
+                        {(task as any).subTask && (
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                            theme === 'dark' 
+                              ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' 
+                              : 'bg-blue-100 text-blue-700 border-blue-200'
+                          }`}>
+                            SUBTASK
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -766,15 +938,15 @@ export default function TaskTable({
 
       {/* Table Stats Footer */}
       <div className="mt-4 flex flex-col sm:flex-row items-center justify-between text-[11px] text-slate-400 font-medium">
-        <span>Showing {displayedTasks.length} tasks in this segment ({allTasks.length} total across all)</span>
+        <span>Showing {filteredTasks.length} tasks matching filters ({allTasks.length} total across all)</span>
         <div className="flex items-center gap-3 mt-2 sm:mt-0">
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
-            <span>{displayedTasks.filter(t => t.status !== 'Completed').length} Uncompleted</span>
+            <span>{filteredTasks.filter(t => t.status !== 'Completed').length} Uncompleted</span>
           </span>
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>{displayedTasks.filter(t => t.status === 'Completed').length} Completed</span>
+            <span>{filteredTasks.filter(t => t.status === 'Completed').length} Completed</span>
           </span>
         </div>
       </div>
