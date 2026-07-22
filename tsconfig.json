@@ -20,7 +20,13 @@
         "./*"
       ]
     },
+    "typeRoots": [
+      "./node_modules/@types"
+    ],
     "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "jsxImportSource": "react",
     "noEmit": true
   }
 }

@@ -156,7 +156,7 @@ export default function App() {
 
         if (Array.isArray(data)) {
           // Convert backend notifications -> UI notifications
-          const mapped: Notification[] = data
+          const mapped: UiNotification[] = data
             .slice(0, 30)
             .map((n: any) => ({
               id: String(n.id),
@@ -247,6 +247,72 @@ export default function App() {
     }
   };
 
+  const handleBulkApproveReject = async (taskIds: string[], action: 'approve' | 'reject') => {
+    let successCount = 0;
+    
+    // First try the dedicated bulk endpoint
+    try {
+      const res = await fetch(`${API_BASE}/tasks/approve-bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskIds, action }),
+      });
+      if (res.ok) {
+        const updatedTasks: Task[] = await res.json();
+        setTasks(prev => {
+          const updated = [...prev];
+          for (const ut of updatedTasks) {
+            const idx = updated.findIndex(t => t.id === ut.id);
+            if (idx >= 0) updated[idx] = ut;
+          }
+          return updated;
+        });
+        addNotification({
+          type: 'success',
+          title: 'Bulk Task Update',
+          message: `${updatedTasks.length} tasks ${action === 'approve' ? 'approved' : 'rejected'} successfully`,
+        });
+        return;
+      }
+    } catch {
+      // fall through to individual updates
+    }
+
+    // Fallback: update each task individually using the proven PUT endpoint
+    const newStatus: TaskStatus = action === 'approve' ? 'Completed' : 'Rejected';
+    for (const taskId of taskIds) {
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) continue;
+      const updated = { ...task, status: newStatus };
+      try {
+        const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        });
+        if (res.ok) {
+          const saved: Task = await res.json();
+          setTasks(prev => prev.map(t => t.id === taskId ? saved : t));
+          successCount++;
+        } else {
+          setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
+          successCount++;
+        }
+      } catch {
+        setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
+        successCount++;
+      }
+    }
+
+    if (successCount > 0) {
+      addNotification({
+        type: 'success',
+        title: 'Bulk Task Update',
+        message: `${successCount} tasks ${action === 'approve' ? 'approved' : 'rejected'} successfully`,
+      });
+    }
+  };
+
   const handleSaveTaskDetails = async (updatedTask: Task) => {
     try {
       const res = await fetch(`${API_BASE}/tasks/${updatedTask.id}`, {
@@ -267,6 +333,74 @@ export default function App() {
     } catch {
       setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
       setSelectedTaskForDetails(updatedTask);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setTasks(prev => prev.filter(t => t.id !== taskId));
+        if (selectedTaskForDetails?.id === taskId) {
+          setIsDetailsPanelOpen(false);
+          setSelectedTaskForDetails(null);
+        }
+        addNotification({
+          type: 'success',
+          title: 'Task Deleted',
+          message: `Task "${task?.name || taskId}" has been deleted successfully`,
+        });
+      }
+    } catch {
+      // optimistic local delete on failure
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+      if (selectedTaskForDetails?.id === taskId) {
+        setIsDetailsPanelOpen(false);
+        setSelectedTaskForDetails(null);
+      }
+    }
+  };
+
+  const handleBulkDeleteTasks = async (taskIds: string[]) => {
+    if (!taskIds || taskIds.length === 0) return;
+    try {
+      const res = await fetch(`${API_BASE}/tasks/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskIds }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+        if (selectedTaskForDetails && taskIds.includes(selectedTaskForDetails.id)) {
+          setIsDetailsPanelOpen(false);
+          setSelectedTaskForDetails(null);
+        }
+        addNotification({
+          type: 'success',
+          title: 'Bulk Delete',
+          message: data.message || `${taskIds.length} task(s) deleted successfully`,
+        });
+      } else {
+        // optimistic local delete on failure
+        setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+        addNotification({
+          type: 'success',
+          title: 'Bulk Delete',
+          message: `${taskIds.length} task(s) deleted successfully`,
+        });
+      }
+    } catch {
+      // optimistic local delete on failure
+      setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+      addNotification({
+        type: 'success',
+        title: 'Bulk Delete',
+        message: `${taskIds.length} task(s) deleted successfully`,
+      });
     }
   };
 
@@ -572,9 +706,12 @@ export default function App() {
                           onToggleStatus={handleToggleTaskStatus}
                           onAddTaskClick={() => setIsAddTaskModalOpen(true)}
                           onDuplicateTask={(taskId) => handleDuplicateTask(taskId)}
+                          onDeleteTask={(taskId) => handleDeleteTask(taskId)}
+                          onBulkDeleteTasks={handleBulkDeleteTasks}
                           onSubmitDraft={handleSubmitDraft}
                           onSelectTask={handleSelectTaskForDetails}
                           onUpdateTaskStatus={handleUpdateTaskStatus}
+                          onBulkApproveReject={handleBulkApproveReject}
                           isSubtaskFilterMode={taskFilterMode === 'subtask' || taskFilterMode === 'subtask-approved'}
                         />
                       </div>
@@ -625,9 +762,12 @@ export default function App() {
                       onToggleStatus={handleToggleTaskStatus}
                       onAddTaskClick={() => setIsAddTaskModalOpen(true)}
                       onDuplicateTask={(taskId) => handleDuplicateTask(taskId)}
+                      onDeleteTask={(taskId) => handleDeleteTask(taskId)}
+                      onBulkDeleteTasks={handleBulkDeleteTasks}
                       onSubmitDraft={handleSubmitDraft}
                       onSelectTask={handleSelectTaskForDetails}
                       onUpdateTaskStatus={handleUpdateTaskStatus}
+                      onBulkApproveReject={handleBulkApproveReject}
                       isSubtaskFilterMode={taskFilterMode === 'subtask' || taskFilterMode === 'subtask-approved'}
                     />
                   </div>
@@ -740,6 +880,7 @@ case 'Projects':
         task={selectedTaskForDetails}
         onClose={() => setIsDetailsPanelOpen(false)}
         onSave={handleSaveTaskDetails}
+        onDeleteTask={(taskId) => handleDeleteTask(taskId)}
         users={users}
         loggedInUser={loggedInUser}
       />

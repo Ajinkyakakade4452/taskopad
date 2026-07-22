@@ -6,6 +6,7 @@ public class SubTask {
     private String id;
     private String name;
     private boolean completed;
+    private String date; // Date associated with the subtask (YYYY-MM-DD)
 
     // Admin approval gate (workflow): only approved + completed subtasks allow main task completion
     private boolean approvedByAdmin;
@@ -41,6 +42,9 @@ public class SubTask {
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+
+    public String getDate() { return date; }
+    public void setDate(String date) { this.date = date; }
 
     public boolean isCompleted() { return completed; }
     public void setCompleted(boolean completed) { this.completed = completed; }

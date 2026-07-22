@@ -66,8 +66,8 @@ function NotificationItem({
     },
   };
 
-  const config = colors[notification.type];
-  const Icon = config.icon;
+  const config = (notification?.type && colors[notification.type]) || colors.info;
+  const Icon = config.icon || colors.info.icon;
 
   return (
     <motion.div

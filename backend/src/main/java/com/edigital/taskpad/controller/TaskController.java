@@ -360,6 +360,99 @@ public class TaskController {
     }
 
 
+    @PostMapping("/approve-bulk")
+    public ResponseEntity<List<Task>> approveBulkTasks(@RequestBody Map<String, Object> payload) {
+        if (payload == null || !payload.containsKey("taskIds")) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        @SuppressWarnings("unchecked")
+        List<String> taskIds = (List<String>) payload.get("taskIds");
+        String action = payload.getOrDefault("action", "approve").toString();
+
+        if (taskIds == null || taskIds.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        List<Task> updatedTasks = new ArrayList<>();
+
+        for (String taskId : taskIds) {
+            Optional<Task> optionalTask = taskRepository.findById(taskId);
+            if (optionalTask.isEmpty()) {
+                continue;
+            }
+
+            Task task = optionalTask.get();
+            String oldStatus = task.getStatus();
+
+            if ("approve".equalsIgnoreCase(action)) {
+                task.setStatus("Completed");
+            } else if ("reject".equalsIgnoreCase(action)) {
+                task.setStatus("Rejected");
+            } else {
+                continue;
+            }
+
+            recomputeTaskStatusFromSubTasks(task);
+            Task saved = taskRepository.save(task);
+            updatedTasks.add(saved);
+
+            // ── Create notifications ──
+            try {
+                String newStatus = saved.getStatus();
+                if (newStatus != null && !newStatus.equalsIgnoreCase(oldStatus)) {
+                    if ("Completed".equalsIgnoreCase(newStatus)) {
+                        List<String> recipients = new ArrayList<>();
+                        if (saved.getAssignTo() != null && !saved.getAssignTo().isBlank()) {
+                            recipients.add(saved.getAssignTo());
+                        }
+                        if (saved.getAssignees() != null) {
+                            for (String a : saved.getAssignees()) {
+                                if (a != null && !a.isBlank()) recipients.add(a);
+                            }
+                        }
+                        for (String r : recipients) {
+                            if (r != null && r.contains("@")) {
+                                Notification nt = new Notification();
+                                nt.setUserEmail(r);
+                                nt.setType("COMPLETED");
+                                nt.setTitle("✅ Task approved");
+                                nt.setMessage("Admin marked \"" + saved.getName() + "\" as Completed (bulk).");
+                                nt.setRead(false);
+                                notificationRepository.save(nt);
+                            }
+                        }
+                    } else if ("Rejected".equalsIgnoreCase(newStatus)) {
+                        List<String> recipients = new ArrayList<>();
+                        if (saved.getAssignTo() != null && !saved.getAssignTo().isBlank()) {
+                            recipients.add(saved.getAssignTo());
+                        }
+                        if (saved.getAssignees() != null) {
+                            for (String a : saved.getAssignees()) {
+                                if (a != null && !a.isBlank()) recipients.add(a);
+                            }
+                        }
+                        for (String r : recipients) {
+                            if (r != null && r.contains("@")) {
+                                Notification nt = new Notification();
+                                nt.setUserEmail(r);
+                                nt.setType("REJECTED");
+                                nt.setTitle("❌ Task rejected");
+                                nt.setMessage("Admin rejected \"" + saved.getName() + "\" (bulk).");
+                                nt.setRead(false);
+                                notificationRepository.save(nt);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // don't break bulk update if notification fails
+            }
+        }
+
+        return ResponseEntity.ok(updatedTasks);
+    }
+
     @PostMapping("/{taskId}/subtasks/{subtaskId}/approve")
     public ResponseEntity<Task> approveSubTask(
             @PathVariable String taskId,
@@ -539,6 +632,32 @@ public class TaskController {
         } else {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    @PostMapping("/bulk-delete")
+    public ResponseEntity<Map<String, Object>> deleteBulkTasks(@RequestBody Map<String, Object> payload) {
+        if (payload == null || !payload.containsKey("taskIds")) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Missing taskIds", "deletedCount", 0));
+        }
+
+        @SuppressWarnings("unchecked")
+        List<String> taskIds = (List<String>) payload.get("taskIds");
+        if (taskIds == null || taskIds.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Empty taskIds", "deletedCount", 0));
+        }
+
+        int deletedCount = 0;
+        for (String taskId : taskIds) {
+            if (taskRepository.existsById(taskId)) {
+                taskRepository.deleteById(taskId);
+                deletedCount++;
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+            "message", deletedCount + " task(s) deleted successfully",
+            "deletedCount", deletedCount
+        ));
     }
 
 

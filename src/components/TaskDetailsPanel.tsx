@@ -15,12 +15,13 @@ interface TaskDetailsPanelProps {
   task: Task | null;
   onClose: () => void;
   onSave: (updatedTask: Task) => void;
+  onDeleteTask?: (taskId: string) => void;
   users: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string }[];
   loggedInUser?: { id: string; name: string; email: string; role: 'admin' | 'user'; initials: string; avatarColor: string; token: string };
 }
 
 
-export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave, users, loggedInUser }: TaskDetailsPanelProps) {
+export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave, onDeleteTask, users, loggedInUser }: TaskDetailsPanelProps) {
   // Local edit states
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState('');
@@ -725,6 +726,20 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               >
                 <Edit2 className="w-3.5 h-3.5" />
                 <span>Edit Task</span>
+              </button>
+            )}
+
+            {onDeleteTask && (
+              <button
+                onClick={() => {
+                  if (window.confirm(`Are you sure you want to delete "${task?.name}"? This action cannot be undone.`)) {
+                    onDeleteTask(task.id);
+                  }
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 font-bold text-xs hover:bg-red-500/25 hover:text-red-300 flex items-center gap-1 cursor-pointer transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete</span>
               </button>
             )}
 

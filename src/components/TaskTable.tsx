@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Check, CheckCircle2, Circle, Clock, Flame, Star, AlertCircle, Send, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Check, CheckCircle2, Circle, Clock, Flame, Star, AlertCircle, Send, ThumbsUp, ThumbsDown, Square, CheckSquare, Trash2 } from 'lucide-react';
 import { Task, Priority, TaskStatus } from '../types';
 
 interface TaskTableProps {
@@ -7,10 +7,13 @@ interface TaskTableProps {
   tasks: Task[];
   onToggleStatus: (taskId: string) => void;
   onAddTaskClick: () => void;
+  onDeleteTask?: (taskId: string) => void;
+  onBulkDeleteTasks?: (taskIds: string[]) => void;
   onDuplicateTask?: (taskId: string) => void;
   onSubmitDraft?: (taskId: string) => void;
   onSelectTask?: (task: Task) => void;
   onUpdateTaskStatus?: (taskId: string, status: TaskStatus) => void;
+  onBulkApproveReject?: (taskIds: string[], action: 'approve' | 'reject') => void;
   isSubtaskFilterMode?: boolean;
 }
 
@@ -20,10 +23,13 @@ export default function TaskTable({
   tasks, 
   onToggleStatus, 
   onAddTaskClick, 
+  onDeleteTask,
+  onBulkDeleteTasks,
   onDuplicateTask,
   onSubmitDraft,
   onSelectTask,
   onUpdateTaskStatus,
+  onBulkApproveReject,
   isSubtaskFilterMode = false
 }: TaskTableProps) {
   const [activeGroupTab, setActiveGroupTab] = useState<'today' | 'upcoming' | 'overdue' | 'review' | 'drafts'>('today');
@@ -31,6 +37,23 @@ export default function TaskTable({
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   // ids of tasks currently fading out
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
+  // Bulk selection state for Under Review tasks
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  // Bulk selection state for Delete (used in today, upcoming, overdue tabs)
+  const [selectedBulkDeleteIds, setSelectedBulkDeleteIds] = useState<Set<string>>(new Set());
+
+  // Tabs that support bulk delete
+  const bulkDeleteTabs = new Set(['today', 'upcoming', 'overdue']);
+  const isBulkDeleteTab = bulkDeleteTabs.has(activeGroupTab);
+
+  // Labels for each tab's bulk delete section
+  const tabLabels: Record<string, string> = {
+    today: 'Today & Future',
+    upcoming: 'Upcoming',
+    overdue: 'Overdue Queue',
+    review: 'Under Review',
+    drafts: 'Draft Tasks',
+  };
 
   // Animate-then-complete handler: show tick → fade → update
   const handleCompleteWithAnimation = useCallback((taskId: string, action: () => void) => {
@@ -265,11 +288,128 @@ export default function TaskTable({
         </div>
       )}
 
+      {/* Compute review tasks in current displayed list for bulk toolbar */}
+      {(() => {
+        const displayedReviewTasks = displayedTasks.filter(t => t.status === 'Under Review');
+        const hasReviewTasks = displayedReviewTasks.length > 0;
+        if (!onBulkApproveReject || !hasReviewTasks) return null;
+        return (
+          <div className={`flex items-center gap-2 mb-3 px-4 py-2.5 rounded-xl border ${
+            theme === 'dark' ? 'bg-violet-500/8 border-violet-500/25' : 'bg-violet-50 border-violet-200'
+          }`}>
+            <button
+              onClick={() => {
+                const reviewIds = displayedReviewTasks.map(t => t.id);
+                setSelectedTaskIds(prev => 
+                  prev.size === reviewIds.length ? new Set() : new Set(reviewIds)
+                );
+              }}
+              className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-white transition px-2 py-1 rounded-lg hover:bg-slate-800/50"
+            >
+              {selectedTaskIds.size === displayedReviewTasks.length ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+              {selectedTaskIds.size === displayedReviewTasks.length ? 'Deselect All' : 'Select All'}
+            </button>
+            <span className="text-[10px] text-slate-500 font-mono">
+              {selectedTaskIds.size} of {displayedReviewTasks.length} selected
+            </span>
+            {selectedTaskIds.size > 0 && (
+              <>
+                <div className="w-px h-5 bg-slate-700/50 mx-1" />
+                <button
+                  onClick={() => onBulkApproveReject(Array.from(selectedTaskIds), 'approve')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/35 transition"
+                >
+                  <ThumbsUp className="w-3 h-3" />
+                  Approve Selected ({selectedTaskIds.size})
+                </button>
+                <button
+                  onClick={() => onBulkApproveReject(Array.from(selectedTaskIds), 'reject')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/35 transition"
+                >
+                  <ThumbsDown className="w-3 h-3" />
+                  Reject Selected ({selectedTaskIds.size})
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Bulk Delete toolbar for today, upcoming, overdue tabs */}
+      {isBulkDeleteTab && onBulkDeleteTasks && displayedTasks.length > 0 && (
+        <div className={`flex items-center gap-2 mb-3 px-4 py-2.5 rounded-xl border ${
+          theme === 'dark' ? 'bg-rose-500/8 border-rose-500/25' : 'bg-rose-50 border-rose-200'
+        }`}>
+          <button
+            onClick={() => {
+              const ids = displayedTasks.map(t => t.id);
+              setSelectedBulkDeleteIds(prev => 
+                prev.size === ids.length ? new Set() : new Set(ids)
+              );
+            }}
+            className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-white transition px-2 py-1 rounded-lg hover:bg-slate-800/50"
+          >
+            {selectedBulkDeleteIds.size === displayedTasks.length ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+            {selectedBulkDeleteIds.size === displayedTasks.length ? 'Deselect All' : 'Select All'}
+          </button>
+          <span className="text-[10px] text-slate-500 font-mono">
+            {selectedBulkDeleteIds.size} of {displayedTasks.length} selected
+          </span>
+          {selectedBulkDeleteIds.size > 0 && (
+            <>
+              <div className="w-px h-5 bg-slate-700/50 mx-1" />
+              <button
+                onClick={() => {
+                  if (window.confirm(`Are you sure you want to delete ${selectedBulkDeleteIds.size} selected task(s)?`)) {
+                    onBulkDeleteTasks(Array.from(selectedBulkDeleteIds));
+                    setSelectedBulkDeleteIds(new Set());
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/35 transition"
+              >
+                <Trash2 className="w-3 h-3" />
+                Delete Selected ({selectedBulkDeleteIds.size})
+              </button>
+            </>
+          )}
+          <div className="ml-auto">
+            <button
+              onClick={() => {
+                if (window.confirm(`Delete ALL ${displayedTasks.length} ${tabLabels[activeGroupTab] || ''} tasks? This cannot be undone.`)) {
+                  onBulkDeleteTasks(displayedTasks.map(t => t.id));
+                  setSelectedBulkDeleteIds(new Set());
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/30 text-red-400 border border-red-500/40 hover:bg-red-500/45 transition"
+            >
+              <Trash2 className="w-3 h-3" />
+              Delete All {tabLabels[activeGroupTab] || ''} ({displayedTasks.length})
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Table Container */}
       <div className="w-full overflow-x-auto custom-scrollbar rounded-xl border border-slate-800/10">
         <table className="w-full min-w-[700px] border-collapse text-left text-xs">
           <thead>
             <tr className={`border-b ${theme === 'dark' ? 'bg-[#0D1631]/50 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
+              {/* Checkbox column for Under Review tasks in any tab */}
+              {onBulkApproveReject && displayedTasks.some(t => t.status === 'Under Review') && (
+                <th className="px-3 py-3.5 w-10">
+                  <input
+                    type="checkbox"
+                    checked={displayedTasks.filter(t => t.status === 'Under Review').length > 0 && selectedTaskIds.size === displayedTasks.filter(t => t.status === 'Under Review').length}
+                    onChange={() => {
+                      const reviewIds = displayedTasks.filter(t => t.status === 'Under Review').map(t => t.id);
+                      setSelectedTaskIds(prev => 
+                        prev.size === reviewIds.length ? new Set() : new Set(reviewIds)
+                      );
+                    }}
+                    className="w-4 h-4 rounded text-violet-500 bg-slate-800 border-slate-600 focus:ring-violet-500 accent-violet-500 cursor-pointer"
+                  />
+                </th>
+              )}
               <th className="px-5 py-3.5 font-semibold text-slate-400 rounded-tl-xl">Task Name</th>
               <th className="px-5 py-3.5 font-semibold text-slate-400">Project</th>
               <th className="px-5 py-3.5 font-semibold text-slate-400">Due Date</th>
@@ -281,7 +421,7 @@ export default function TaskTable({
           <tbody className="divide-y divide-slate-800/10">
             {displayedTasks.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-5 py-12 text-center text-slate-400 select-none">
+                <td colSpan={onBulkApproveReject && allTasks.some(t => t.status === 'Under Review') ? 7 : 6} className="px-5 py-12 text-center text-slate-400 select-none">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <CheckCircle2 className="w-8 h-8 text-slate-600 animate-pulse" />
                     <p className="font-semibold text-xs text-slate-300">No tasks found in this queue segment</p>
@@ -313,11 +453,32 @@ export default function TaskTable({
                       ? theme === 'dark'
                         ? 'bg-emerald-950/20'
                         : 'bg-emerald-50/60'
+                      : selectedTaskIds.has(task.id)
+                      ? theme === 'dark'
+                        ? 'bg-violet-500/10'
+                        : 'bg-violet-50'
                       : theme === 'dark'
                       ? 'hover:bg-[#0D1631]'
                       : 'hover:bg-slate-50'
                   }`}
                 >
+                  {/* Selection checkbox for Under Review tasks in any tab */}
+                  {onBulkApproveReject && task.status === 'Under Review' && (
+                    <td className="px-3 py-4 w-10" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedTaskIds.has(task.id)}
+                        onChange={() => {
+                          setSelectedTaskIds(prev => {
+                            const next = new Set(prev);
+                            next.has(task.id) ? next.delete(task.id) : next.add(task.id);
+                            return next;
+                          });
+                        }}
+                        className="w-4 h-4 rounded text-violet-500 bg-slate-800 border-slate-600 focus:ring-violet-500 accent-violet-500 cursor-pointer"
+                      />
+                    </td>
+                  )}
                   {/* Task Name Column */}
                   <td className="px-5 py-4">
                     <div className="flex items-start gap-3 max-w-[280px]">
@@ -571,6 +732,27 @@ export default function TaskTable({
                         }`}
                       >
                         Duplicate
+                      </button>
+                    )}
+
+                    {/* Delete action */}
+                    {onDeleteTask && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isCompleting || isFading) return;
+                          if (window.confirm(`Are you sure you want to delete "${task.name}"?`)) {
+                            onDeleteTask(task.id);
+                          }
+                        }}
+                        title="Delete task permanently"
+                        className={`ml-2 text-[9px] font-extrabold px-2 py-1 rounded-lg border transition cursor-pointer ${
+                          theme === 'dark'
+                            ? 'bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/25 hover:text-red-300'
+                            : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:text-red-700'
+                        }`}
+                      >
+                        Delete
                       </button>
                     )}
                   </td>

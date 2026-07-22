@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus, Trash2, PencilLine, X, Users } from 'lucide-react';
+import { Loader2, Plus, Trash2, PencilLine, X } from 'lucide-react';
 import { Project } from '../types';
 import ProjectTeamMembersPanel from './ProjectTeamMembersPanel';
 
@@ -49,9 +49,6 @@ export default function AdminProjectsPage() {
 
   // Delete
   const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  // Selected project for team members
-  const [selectedProjectForTeam, setSelectedProjectForTeam] = useState<Project | null>(null);
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -305,16 +302,8 @@ export default function AdminProjectsPage() {
                       </div>
                     </div>
 
-                    {/* Actions */}
+                    {/* Actions — Edit & Delete only (Manage Team moved inside Edit modal) */}
                     <div className="flex items-center gap-2 justify-end">
-                      <button
-                        onClick={() => setSelectedProjectForTeam(p)}
-                        disabled={busy === 'edit' || busy === 'delete'}
-                        className="p-2 rounded-lg border border-slate-700/50 bg-slate-800/30 text-slate-300 hover:bg-slate-800/60 hover:text-cyan-300 transition text-xs"
-                        title="Manage team members"
-                      >
-                        <Users className="w-3.5 h-3.5" />
-                      </button>
                       <button
                         onClick={() => openEdit(p)}
                         disabled={busy === 'edit' || busy === 'delete'}
@@ -420,7 +409,7 @@ export default function AdminProjectsPage() {
         </div>
       )}
 
-      {/* Edit Modal */}
+      {/* Edit Modal — includes Manage Team section */}
       {isEditOpen && editForm && (
         <div className="fixed inset-0 z-[60]">
           <div
@@ -437,7 +426,7 @@ export default function AdminProjectsPage() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800/50">
               <div>
                 <p className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400">Edit Project</p>
-                <p className="text-xs text-slate-400">Update project details</p>
+                <p className="text-xs text-slate-400">Update project details &amp; manage team</p>
               </div>
               <button
                 onClick={() => {
@@ -455,18 +444,29 @@ export default function AdminProjectsPage() {
                 <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Project Name</label>
                 <input
                   value={editForm.name}
-                  onChange={(e) => setEditForm((p) => (p ? { ...p, name: e.target.value } : p))}
+                  onChange={(e) => setEditForm((prev: Project | null) => (prev ? { ...prev, name: e.target.value } : prev))}
                   className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Color (CSS color)</label>
-                <input
-                  value={editForm.color}
-                  onChange={(e) => setEditForm((p) => (p ? { ...p, color: e.target.value } : p))}
-                  className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
-                />
+                <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Color</label>
+                <div className="flex flex-wrap gap-2.5">
+                  {['#0ea5e9','#8b5cf6','#f59e0b','#10b981','#ef4444','#3b82f6','#ec4899','#14b8a6','#f97316','#84cc16','#a855f7','#06b6d4'].map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setEditForm((prev: Project | null) => (prev ? { ...prev, color: c } : prev))}
+                      className={`w-7 h-7 rounded-full border-2 transition-all duration-150 ${
+                        editForm.color === c
+                          ? 'border-white scale-110 ring-2 ring-cyan-400 ring-offset-1 ring-offset-[#0A1128]'
+                          : 'border-transparent hover:scale-110'
+                      }`}
+                      style={{ backgroundColor: c }}
+                      title={c}
+                    />
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -475,7 +475,7 @@ export default function AdminProjectsPage() {
                   value={String(!!editForm.hasEndDate)}
                   onChange={(e) => {
                     const next = e.target.value === 'true';
-                    setEditForm((p) => (p ? { ...p, hasEndDate: next, endDate: next ? p.endDate : '' } : p));
+                    setEditForm((prev: Project | null) => (prev ? { ...prev, hasEndDate: next, endDate: next ? prev.endDate : '' } : prev));
                   }}
                   className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
                 >
@@ -490,11 +490,18 @@ export default function AdminProjectsPage() {
                   <input
                     type="date"
                     value={editForm.endDate || ''}
-                    onChange={(e) => setEditForm((p) => (p ? { ...p, endDate: e.target.value } : p))}
+                    onChange={(e) => setEditForm((prev: Project | null) => (prev ? { ...prev, endDate: e.target.value } : prev))}
                     className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
                   />
                 </div>
               )}
+
+              {/* Manage Team section inside Edit modal */}
+              <div className="pt-4 border-t border-slate-800/50">
+                <p className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400 mb-1">Manage Team</p>
+                <p className="text-xs text-slate-400 mb-3">{editForm.name}</p>
+                <ProjectTeamMembersPanel project={editForm} />
+              </div>
             </div>
 
             <div className="px-5 py-4 border-t border-slate-800/50 flex items-center gap-2">
@@ -514,37 +521,6 @@ export default function AdminProjectsPage() {
               >
                 {busy === 'edit' ? 'Saving...' : 'Save'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Team Members Panel */}
-      {selectedProjectForTeam && (
-        <div className="fixed inset-0 z-[80]">
-          <div
-            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-            onClick={() => setSelectedProjectForTeam(null)}
-          />
-          <div
-            className="absolute right-0 top-0 h-full w-full max-w-md bg-[#0A1128] border-l border-slate-700 shadow-2xl flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800/50">
-              <div>
-                <p className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400">Manage Team</p>
-                <p className="text-xs text-slate-400 mt-1">{selectedProjectForTeam.name}</p>
-              </div>
-              <button
-                onClick={() => setSelectedProjectForTeam(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-5">
-              <ProjectTeamMembersPanel project={selectedProjectForTeam} />
             </div>
           </div>
         </div>

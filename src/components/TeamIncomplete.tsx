@@ -27,20 +27,23 @@ export default function TeamIncomplete({ theme, tasks, users }: TeamIncompletePr
   const [searchQuery, setSearchQuery] = useState('');
 
   // Convert users to TeamMember format and calculate incomplete task counts
-  const members: TeamMember[] = users.map(user => {
+  const safeUsers = Array.isArray(users) ? users : [];
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
+
+  const members: TeamMember[] = safeUsers.map(user => {
     // Count tasks assigned to this user (either assignTo or in assignees array)
-    const incompleteTaskCount = tasks.filter(task => {
-      const isAssigned = task.assignTo === user.name || 
-        (task.assignees && task.assignees.includes(user.name));
-      const isIncomplete = task.status !== 'Completed';
+    const incompleteTaskCount = safeTasks.filter(task => {
+      const isAssigned = task?.assignTo === user?.name || 
+        (task?.assignees && Array.isArray(task.assignees) && task.assignees.includes(user?.name));
+      const isIncomplete = task?.status !== 'Completed';
       return isAssigned && isIncomplete;
     }).length;
     
     return {
-      id: user.id,
-      name: user.name,
-      initials: user.initials,
-      avatarColor: getAvatarClasses(user.avatarColor),
+      id: user?.id || Math.random().toString(),
+      name: user?.name || 'User',
+      initials: user?.initials || 'U',
+      avatarColor: getAvatarClasses(user?.avatarColor || ''),
       incompleteTaskCount
     };
   });

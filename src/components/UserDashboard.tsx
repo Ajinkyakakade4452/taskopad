@@ -196,6 +196,59 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [selectedBulkDeleteIds, setSelectedBulkDeleteIds] = useState<Set<string>>(new Set());
+
+  const handleBulkDeleteTasks = async (taskIds: string[]) => {
+    if (!taskIds || taskIds.length === 0) return;
+    try {
+      const res = await fetch(`${API_BASE}/tasks/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskIds }),
+      });
+      if (res.ok) {
+        setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+        if (selectedTask && taskIds.includes(selectedTask.id)) setSelectedTask(null);
+        addNotification({
+          type: 'success',
+          title: 'Bulk Delete',
+          message: `${taskIds.length} task(s) deleted successfully`,
+        });
+      } else {
+        // optimistic local delete on failure
+        setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+        addNotification({
+          type: 'success',
+          title: 'Bulk Delete',
+          message: `${taskIds.length} task(s) deleted successfully`,
+        });
+      }
+    } catch {
+      // optimistic local delete on failure
+      setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+      addNotification({
+        type: 'success',
+        title: 'Bulk Delete',
+        message: `${taskIds.length} task(s) deleted successfully`,
+      });
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setTasks(prev => prev.filter(t => t.id !== taskId));
+        if (selectedTask?.id === taskId) setSelectedTask(null);
+      }
+    } catch {
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+      if (selectedTask?.id === taskId) setSelectedTask(null);
+    }
+  };
 
   const [newAttachmentName, setNewAttachmentName] = useState('');
   const [fileToUpload, setFileToUpload] = useState<File | null>(null);
@@ -489,6 +542,12 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   const completedCount = tasks.filter((t) => t.status === 'Completed').length;
   const pendingCount = tasks.filter((t) => t.status !== 'Completed').length;
 
+  // Pending subtask counts
+  const totalSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.length || 0), 0);
+  const completedSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.filter(st => st.completed)?.length || 0), 0);
+  const pendingSubtaskCount = totalSubtaskCount - completedSubtaskCount;
+  const pendingApprovalSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.filter(st => st.completed && (st as any).approvedByAdmin !== true)?.length || 0), 0);
+
   const renderTasksView = () => (
     <>
       {/* Filter Drawer */}
@@ -736,6 +795,59 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
         </div>
       </div>
 
+      {/* Bulk Delete toolbar for today, upcoming, overdue tabs */}
+      {(activeTab === 'today' || activeTab === 'upcoming' || activeTab === 'overdue') && activeList.length > 0 && (
+        <div className="flex items-center gap-2 px-6 py-2.5 border-b border-slate-800/50 bg-rose-500/8">
+          <button
+            onClick={() => {
+              const ids = activeList.map(t => t.id);
+              setSelectedBulkDeleteIds(prev => 
+                prev.size === ids.length ? new Set() : new Set(ids)
+              );
+            }}
+            className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-white transition px-2 py-1 rounded-lg hover:bg-slate-800/50"
+          >
+            {selectedBulkDeleteIds.size === activeList.length ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+            {selectedBulkDeleteIds.size === activeList.length ? 'Deselect All' : 'Select All'}
+          </button>
+          <span className="text-[10px] text-slate-500 font-mono">
+            {selectedBulkDeleteIds.size} of {activeList.length} selected
+          </span>
+          {selectedBulkDeleteIds.size > 0 && (
+            <>
+              <div className="w-px h-5 bg-slate-700/50 mx-1" />
+              <button
+                onClick={() => {
+                  if (window.confirm(`Are you sure you want to delete ${selectedBulkDeleteIds.size} selected task(s)?`)) {
+                    handleBulkDeleteTasks(Array.from(selectedBulkDeleteIds));
+                    setSelectedBulkDeleteIds(new Set());
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/35 transition"
+              >
+                <Trash2 className="w-3 h-3" />
+                Delete Selected ({selectedBulkDeleteIds.size})
+              </button>
+            </>
+          )}
+          <div className="ml-auto">
+            <button
+              onClick={() => {
+                const tabLabel = activeTab === 'today' ? 'Today & Future' : activeTab === 'upcoming' ? 'Upcoming' : 'Overdue Queue';
+                if (window.confirm(`Delete ALL ${activeList.length} ${tabLabel} tasks? This cannot be undone.`)) {
+                  handleBulkDeleteTasks(activeList.map(t => t.id));
+                  setSelectedBulkDeleteIds(new Set());
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold bg-red-500/30 text-red-400 border border-red-500/40 hover:bg-red-500/45 transition"
+            >
+              <Trash2 className="w-3 h-3" />
+              Delete All {activeTab === 'today' ? 'Today & Future' : activeTab === 'upcoming' ? 'Upcoming' : 'Overdue Queue'} ({activeList.length})
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Task List */}
       <div className="flex-1 overflow-auto custom-scrollbar">
         {loading ? (
@@ -875,6 +987,18 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                         {sc.label}
                       </span>
 
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Are you sure you want to delete "${task.name}"?`)) {
+                            handleDeleteTask(task.id);
+                          }
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition"
+                        title="Delete task"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1165,12 +1289,25 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
             </div>
 
             <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-between flex-shrink-0">
-              <button
-                onClick={() => setSelectedTask(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-slate-700 rounded-lg hover:bg-slate-800 transition"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedTask(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-slate-700 rounded-lg hover:bg-slate-800 transition"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Are you sure you want to delete "${selectedTask.name}"? This action cannot be undone.`)) {
+                      handleDeleteTask(selectedTask.id);
+                    }
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg hover:bg-red-500/15 transition flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Task
+                </button>
+              </div>
               {/* Mark as Completed — submits for admin review (Under Review) */}
               {(() => {
                 const hasSubTasks = selectedTask.subTasks && selectedTask.subTasks.length > 0;
@@ -1289,7 +1426,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
 
         <div className="p-6 space-y-6">
           {/* Summary cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30">
               <div className="text-[10px] font-bold uppercase text-slate-500">Today & Future</div>
               <div className="text-3xl font-extrabold text-cyan-300 mt-2">{todayTasks.length}</div>
@@ -1299,6 +1436,16 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
               <div className="text-[10px] font-bold uppercase text-slate-500">Overdue</div>
               <div className="text-3xl font-extrabold text-red-300 mt-2">{overdueTasks.length}</div>
               <div className="text-xs text-slate-400 mt-1">Needs attention</div>
+            </div>
+            <div className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30">
+              <div className="text-[10px] font-bold uppercase text-slate-500">Pending Subtasks</div>
+              <div className="text-3xl font-extrabold text-indigo-300 mt-2">{pendingSubtaskCount}</div>
+              <div className="text-xs text-slate-400 mt-1">{completedSubtaskCount} of {totalSubtaskCount} completed</div>
+            </div>
+            <div className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30">
+              <div className="text-[10px] font-bold uppercase text-slate-500">Pending Approvals</div>
+              <div className="text-3xl font-extrabold text-violet-300 mt-2">{pendingApprovalSubtaskCount}</div>
+              <div className="text-xs text-slate-400 mt-1">Completed subtasks awaiting admin approval</div>
             </div>
             <div className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30">
               <div className="text-[10px] font-bold uppercase text-slate-500">Drafts</div>
@@ -1319,7 +1466,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                   {projects.length === 0 ? (
                     <div className="text-xs text-slate-500">No projects assigned.</div>
                   ) : (
-                    projects.slice(0, 6).map((p) => {
+                    projects.slice(0, 6).map((p: string) => {
                       const prTasks = tasks.filter((t) => t.project === p);
                       const done = prTasks.filter((t) => t.status === 'Completed').length;
                       return (

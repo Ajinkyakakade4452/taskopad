@@ -377,33 +377,34 @@ interface PriorityChartProps {
 export function PriorityTaskSummary({ theme, tasks }: PriorityChartProps) {
   // Real data from tasks
   const pendingTasks = tasks.filter(t => t.status !== 'Completed');
+  const criticalCount = pendingTasks.filter(t => t.priority === 'Critical').length;
   const lowCount = pendingTasks.filter(t => t.priority === 'Low').length;
   const mediumCount = pendingTasks.filter(t => t.priority === 'Medium').length;
   const highCount = pendingTasks.filter(t => t.priority === 'High').length;
 
-  const total = lowCount + mediumCount + highCount;
+  const total = lowCount + mediumCount + highCount + criticalCount;
 
   // Circle Math
   const radius = 35;
   const circumference = 2 * Math.PI * radius;
 
   // Percentages
-  const pctLow = lowCount / total;
-  const pctMedium = mediumCount / total;
+  const pctCritical = criticalCount / total;
   const pctHigh = highCount / total;
+  const pctMedium = mediumCount / total;
+  const pctLow = lowCount / total;
 
   // Stroke Dash arrays
-  const strokeDashLow = circumference * pctLow;
-  const strokeDashMedium = circumference * pctMedium;
+  const strokeDashCritical = circumference * pctCritical;
   const strokeDashHigh = circumference * pctHigh;
+  const strokeDashMedium = circumference * pctMedium;
+  const strokeDashLow = circumference * pctLow;
 
-  // Offsets
-  // High starts at 0 (top/right)
-  const offsetHigh = 0;
-  // Medium starts after High
-  const offsetMedium = strokeDashHigh;
-  // Low starts after Medium
-  const offsetLow = strokeDashHigh + strokeDashMedium;
+  // Offsets (Critical starts at top, then High, Medium, Low)
+  const offsetCritical = 0;
+  const offsetHigh = strokeDashCritical;
+  const offsetMedium = strokeDashCritical + strokeDashHigh;
+  const offsetLow = strokeDashCritical + strokeDashHigh + strokeDashMedium;
 
   return (
     <div
@@ -431,6 +432,20 @@ export function PriorityTaskSummary({ theme, tasks }: PriorityChartProps) {
               fill="transparent"
               stroke={theme === 'dark' ? '#0D1631' : '#f1f5f9'}
               strokeWidth="9"
+            />
+
+            {/* Critical Segment (Violet) */}
+            <circle
+              cx="50"
+              cy="50"
+              r={radius}
+              fill="transparent"
+              stroke="#8b5cf6"
+              strokeWidth="11"
+              strokeDasharray={`${strokeDashCritical} ${circumference}`}
+              strokeDashoffset={-offsetCritical}
+              strokeLinecap="round"
+              className="transition-all duration-500 ease-out"
             />
 
             {/* High Segment (Red) */}
@@ -485,6 +500,15 @@ export function PriorityTaskSummary({ theme, tasks }: PriorityChartProps) {
 
         {/* Legend */}
         <div className="flex flex-row md:flex-col flex-wrap justify-center gap-4 md:gap-3 text-xs w-full">
+          {/* Critical */}
+          <div className="flex items-center justify-between gap-3 bg-violet-500/5 hover:bg-violet-500/10 transition px-3 py-2 rounded-xl border border-violet-500/10 min-w-[85px] md:w-full">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-violet-500"></span>
+              <span className="text-slate-400 font-medium">Critical</span>
+            </div>
+            <span className="font-bold font-mono text-violet-500">{criticalCount}</span>
+          </div>
+
           {/* High */}
           <div className="flex items-center justify-between gap-3 bg-red-500/5 hover:bg-red-500/10 transition px-3 py-2 rounded-xl border border-red-500/10 min-w-[85px] md:w-full">
             <div className="flex items-center gap-2">
@@ -515,7 +539,10 @@ export function PriorityTaskSummary({ theme, tasks }: PriorityChartProps) {
       </div>
 
       <div className={`text-[11px] text-center p-2 rounded-lg ${theme === 'dark' ? 'bg-[#0D1631]/50 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
-        Majority of active assignments are flagged as <span className="text-red-400 font-semibold">High Priority</span>.
+        {criticalCount > 0
+          ? <><span className="text-violet-400 font-semibold">{criticalCount}</span> task(s) flagged as <span className="text-violet-400 font-semibold">Critical</span> — Immediate attention required.</>
+          : <>Majority of active assignments are flagged as <span className="text-red-400 font-semibold">High Priority</span>.</>
+        }
       </div>
     </div>
   );

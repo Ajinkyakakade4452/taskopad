@@ -19,7 +19,8 @@ import {
   Briefcase,
   Users,
   Eye,
-  CheckSquare
+  CheckSquare,
+  ListTodo
 } from 'lucide-react';
 import { Task, Priority, TaskStatus } from '../types';
 
@@ -122,8 +123,12 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Sub Tasks State ---
-  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean; assignTo?: string; comments?: { id: string; author: string; text: string; date: string }[] }[]>([]);
+  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean; date?: string; assignTo?: string; comments?: { id: string; author: string; text: string; date: string }[] }[]>([]);
   const [newSubTaskName, setNewSubTaskName] = useState('');
+  const [newSubTaskDate, setNewSubTaskDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
   const [subtaskExpandedId, setSubtaskExpandedId] = useState<string | null>(null);
   const [subtaskNewComment, setSubtaskNewComment] = useState('');
 
@@ -375,6 +380,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
         id: `sub-${Date.now()}`,
         name: newSubTaskName.trim(),
         completed: false,
+        date: newSubTaskDate || '',
         comments: []
       };
       setSubTasks((prev) => [...prev, newSub]);
@@ -1307,7 +1313,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
               </div>
             </div>
 
-            {/* Task Time & Recurrence Engine */}
+{/* Task Time & Recurrence Engine */}
             <div className={`border rounded-xl p-4 space-y-4 ${
               theme === 'dark' ? 'border-slate-800 bg-slate-950/20' : 'border-slate-200 bg-slate-50/50'
             }`}>
@@ -1656,11 +1662,11 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, users, logge
               )}
             </div>
 
-            {/* Dynamic Sub Tasks */}
+            {/* Dynamic Subtasks Section */}
             <div className="border border-slate-800/10 rounded-xl p-3 bg-slate-950/20 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                  <CheckSquare className="w-3.5 h-3.5 text-cyan-400" />
+                  <ListTodo className="w-3.5 h-3.5 text-cyan-400" />
                   <span>Dynamic Subtasks ({subTasks.length})</span>
                 </span>
                 {subTasks.length > 0 && (

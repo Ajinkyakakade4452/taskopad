@@ -35,16 +35,18 @@ function isOverdue(dueDate: string): boolean {
 }
 
 export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilterClick, activeFilter = 'all' }: StatCardsProps) {
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
   // Calculate real stats from tasks
-  const totalTaskCount = tasks.length;
+  const totalTaskCount = safeTasks.length;
 
-  const allSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.length || 0), 0);
-  const unapprovedSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.filter(st => st.approvedByAdmin !== true).length || 0), 0);
-  const clientApprovedTasks = tasks.filter(t => t.status === 'Under Review');
+  const allSubtaskCount = safeTasks.reduce((sum, t) => sum + (t?.subTasks?.length || 0), 0);
+  const pendingApprovalSubtaskCount = safeTasks.reduce((sum, t) => sum + (t?.subTasks?.filter(st => st?.completed === true && st?.approvedByAdmin !== true).length || 0), 0);
+  const pendingSubtaskCount = safeTasks.reduce((sum, t) => sum + (t?.subTasks?.filter(st => !st?.completed).length || 0), 0);
+  const clientApprovedTasks = safeTasks.filter(t => t?.status === 'Under Review');
 
-  const dueTodayCount = tasks.filter(t => isToday(t.dueDate)).length;
+  const dueTodayCount = safeTasks.filter(t => isToday(t?.dueDate)).length;
 
-  const pastDueCount = tasks.filter(t => isOverdue(t.dueDate) && t.status !== 'Completed').length;
+  const pastDueCount = safeTasks.filter(t => isOverdue(t?.dueDate) && t?.status !== 'Completed').length;
 
   const stats = [
     {
@@ -69,7 +71,7 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
     },
     {
       title: 'Pending Approval',
-      value: unapprovedSubtaskCount,
+      value: pendingApprovalSubtaskCount,
       icon: CheckCircle,
       color: 'from-emerald-400 to-teal-500',
       bgOpacity: 'bg-emerald-500/10',
