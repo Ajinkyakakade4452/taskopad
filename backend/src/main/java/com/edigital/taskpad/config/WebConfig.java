@@ -1,11 +1,16 @@
 package com.edigital.taskpad.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+
+    @Value("${app.upload.dir:/var/www/tasktracker/uploads}")
+    private String uploadDir;
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
@@ -26,9 +31,13 @@ public class WebConfig implements WebMvcConfigurer {
     }
 
     @Override
-    public void addResourceHandlers(org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry registry) {
-        // Serve files from 'uploads' directory
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // Serve uploaded files from the configured absolute upload directory
+        // On production, nginx serves /uploads/ directly so this acts as fallback for local dev
+        java.nio.file.Path absoluteUploadPath = java.nio.file.Paths.get(uploadDir).toAbsolutePath().normalize();
+        String uploadLocation = "file:" + absoluteUploadPath.toString() + "/";
+
         registry.addResourceHandler("/uploads/**", "/api/uploads/**")
-                .addResourceLocations("file:uploads/", "file:./uploads/");
+                .addResourceLocations(uploadLocation, "file:uploads/", "file:./uploads/");
     }
 }
