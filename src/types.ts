@@ -14,12 +14,11 @@ export interface Task {
   assignTo: string; // Main assignee Name
   assignees?: string[]; // Multiple assignees
   status: TaskStatus;
-  client?: string;
   service?: string;
   follower?: string;
   documents?: string[];
   userDocuments?: string[];
-  subTasks?: { id: string; name: string; completed: boolean; date?: string; approvedByAdmin?: boolean; rejectedByAdmin?: boolean; assignTo?: string; comments?: { id: string; author: string; text: string; date: string }[] }[];
+  subTasks?: { id: string; name: string; completed: boolean; date?: string; startDate?: string; endDate?: string; approvedByAdmin?: boolean; rejectedByAdmin?: boolean; assignTo?: string; assignees?: string[]; comments?: { id: string; author: string; text: string; date: string }[] }[];
 
 
   checklist?: { id: string; name: string; checked: boolean }[];
@@ -45,6 +44,12 @@ export interface Task {
   startTime?: string; // e.g. "05:30 PM"
   endTime?: string; // e.g. "06:30 PM"
   reminderBefore?: string; // e.g. "30 minutes before"
+
+  // Penalty System fields
+  penaltyAmount?: number; // Calculated penalty amount (default e.g. 200 Rs)
+  isPenalized?: boolean; // Whether penalty was applied due to late completion
+  customPenalty?: number; // Per-task custom penalty amount configured by Admin
+  completedAt?: string; // Timestamp when task was completed
 }
 
 export interface Project {

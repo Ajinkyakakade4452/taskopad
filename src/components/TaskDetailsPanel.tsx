@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 
 
@@ -8,6 +8,7 @@ import {
   Folder, Calendar, AlertCircle, Play, CheckCircle2, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import { Task, Priority, TaskStatus } from '../types';
+import { openDocument, readFileAsDataURL } from '../utils/documentViewer';
 
 interface TaskDetailsPanelProps {
   theme: 'light' | 'dark';
@@ -41,7 +42,13 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
     id: string;
     name: string;
     completed: boolean;
+    startDate?: string;
+    endDate?: string;
     approvedByAdmin?: boolean;
+    rejectedByAdmin?: boolean;
+    assignTo?: string;
+    assignees?: string[];
+    comments?: { id: string; author: string; text: string; date: string }[];
   }[]>([]);
 
   const [checklist, setChecklist] = useState<{ id: string; name: string; checked: boolean }[]>([]);
@@ -53,6 +60,14 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
 
   // New item inputs
   const [newSubTaskName, setNewSubTaskName] = useState('');
+  const [newSubTaskStartDate, setNewSubTaskStartDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [newSubTaskEndDate, setNewSubTaskEndDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
   const [newChecklistItemName, setNewChecklistItemName] = useState('');
   const [newCommentText, setNewCommentText] = useState('');
   const [newTimeDuration, setNewTimeDuration] = useState('');
@@ -66,6 +81,12 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
 
   // Subtask selection state for bulk approve
   const [selectedSubtaskIds, setSelectedSubtaskIds] = useState<Set<string>>(new Set());
+
+  // Bulk assign subtask state
+  const [selectedSubtaskIdsForAssign, setSelectedSubtaskIdsForAssign] = useState<Set<string>>(new Set());
+  const [selectedAssigneesForBulk, setSelectedAssigneesForBulk] = useState<Set<string>>(new Set());
+  const [isBulkAssignDropdownOpen, setIsBulkAssignDropdownOpen] = useState(false);
+  const bulkAssignRef = useRef<HTMLDivElement>(null);
 
   // Dropdown list options
   const [projectsList, setProjectsList] = useState<string[]>([]);
@@ -135,10 +156,10 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       ];
       setTimeLogs(initialTimeLogs);
 
-      // Show backend documents if present; only fallback to mocks if truly missing.
+      // Show backend documents if present; no dummy fallback.
       const initialAttachments = (task.documents && task.documents.length > 0)
         ? task.documents
-        : ['project_brief_v2.pdf', 'mood_board_preview.png'];
+        : [];
       setAttachments(initialAttachments);
 
       setUserAttachments(task.userDocuments || []);
@@ -535,6 +556,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       id: `sub-${Date.now()}`,
       name: newSubTaskName.trim(),
       completed: false,
+      startDate: newSubTaskStartDate || '',
+      endDate: newSubTaskEndDate || '',
       comments: [] // Initialize with empty comments array
     };
     const updated = [...subTasks, newSub];
@@ -552,6 +575,68 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       userDocuments: userAttachments,
     };
     onSave(updatedTask);
+  };
+
+  // Logger helper to add action entries
+  const addActivity = (text: string) => {
+    const newAct = {
+      id: `act-${Date.now()}`,
+      user: loggedInUser?.name || 'System',
+      action: text,
+      date: new Date().toLocaleString()
+    };
+    setActivityLogs((prev) => [newAct, ...prev]);
+  };
+
+  // Bulk assign selected subtasks to selected employees
+  const handleBulkAssignSubTasks = () => {
+    if (selectedAssigneesForBulk.size === 0 || selectedSubtaskIdsForAssign.size === 0) return;
+    const assigneesList = Array.from(selectedAssigneesForBulk);
+    const updated = subTasks.map(st => 
+      selectedSubtaskIdsForAssign.has(st.id) ? { ...st, assignTo: assigneesList[0], assignees: assigneesList } : st
+    );
+    setSubTasks(updated);
+    const updatedTask: Task = {
+      ...task,
+      subTasks: updated,
+      checklist,
+      comments,
+      timeLogs,
+      documents: attachments,
+      userDocuments: userAttachments,
+    };
+    onSave(updatedTask);
+    addActivity(`Bulk assigned ${selectedSubtaskIdsForAssign.size} subtask(s) to ${assigneesList.join(', ')}`);
+    setSelectedSubtaskIdsForAssign(new Set());
+    setSelectedAssigneesForBulk(new Set());
+  };
+
+  // Toggle employee selection for bulk assign
+  const toggleEmployeeForBulk = (name: string) => {
+    setSelectedAssigneesForBulk(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  // Toggle selection for bulk assign
+  const toggleSubtaskForBulkAssign = (id: string) => {
+    setSelectedSubtaskIdsForAssign(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Select all subtasks for bulk assign
+  const selectAllForBulkAssign = () => {
+    setSelectedSubtaskIdsForAssign(prev => {
+      if (prev.size === subTasks.length) return new Set();
+      return new Set(subTasks.map(st => st.id));
+    });
   };
 
   // Add Checklist Item
@@ -626,16 +711,19 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       try {
         const formData = new FormData();
         formData.append('file', fileToUpload);
-        const uploadRes = await fetch('http://localhost:8081/api/upload', {
+        const uploadRes = await fetch('/api/upload', {
           method: 'POST',
           body: formData,
         });
         if (uploadRes.ok) {
           const data = await uploadRes.json();
-          uploadedUrl = 'http://localhost:8081' + data.url;
+          uploadedUrl = data.url;
+        } else {
+          uploadedUrl = await readFileAsDataURL(fileToUpload);
         }
       } catch (err) {
-        console.error('File upload failed', err);
+        console.error('File upload fallback to data URL', err);
+        uploadedUrl = await readFileAsDataURL(fileToUpload);
       }
     }
     
@@ -696,13 +784,13 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
     try {
       const formData = new FormData();
       formData.append('file', droppedFile);
-      const uploadRes = await fetch('http://localhost:8081/api/upload', {
+      const uploadRes = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       });
       if (uploadRes.ok) {
         const data = await uploadRes.json();
-        uploadedUrl = 'http://localhost:8081' + data.url;
+        uploadedUrl = data.url;
       }
     } catch (err) {
       console.error('Drag-and-drop upload failed', err);
@@ -759,14 +847,15 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
     e.preventDefault();
     if (!subtaskNewCommentText.trim()) return;
 
+    const newComment = {
+      id: `sub-comment-${Date.now()}`,
+      author: loggedInUser?.name || 'Unknown User',
+      text: subtaskNewCommentText.trim(),
+      date: new Date().toLocaleString()
+    };
+
     const updatedSubtasks = subTasks.map(st => {
       if (st.id === subtaskId) {
-        const newComment = {
-          id: `sub-comment-${Date.now()}`,
-          author: loggedInUser?.name || 'Unknown User',
-          text: subtaskNewCommentText.trim(),
-          date: new Date().toLocaleString()
-        };
         return {
           ...st,
           comments: [...(st.comments || []), newComment]
@@ -775,6 +864,11 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       return st;
     });
     setSubTasks(updatedSubtasks);
+    
+    // Also append the comment to the main task-level comments array
+    const updatedComments = [...comments, newComment];
+    setComments(updatedComments);
+    
     setSubtaskNewCommentText('');
 
     // Save state instantly to App
@@ -782,7 +876,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       ...task,
       subTasks: updatedSubtasks,
       checklist,
-      comments,
+      comments: updatedComments,
       timeLogs,
       documents: attachments,
       userDocuments: userAttachments,
@@ -1127,6 +1221,39 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
 
           </div>
 
+          {/* Penalty Badge (Admin View) */}
+          {task.isPenalized && (
+            <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border border-red-800/50 ${theme === 'dark' ? 'bg-red-950/30' : 'bg-red-50 border-red-200'}`}>
+              <span className="text-xl">⚠️</span>
+              <div className="flex-1">
+                <p className="text-xs font-extrabold text-red-400 uppercase tracking-wider">Late Penalty Applied</p>
+                <p className="text-[11px] text-red-300/80 mt-0.5">
+                  Task was completed after due date. Penalty:{' '}
+                  <span className="font-extrabold text-red-300">₹{task.penaltyAmount ?? 200}</span>
+                  {task.completedAt && <span className="text-slate-500 ml-2">Completed: {new Date(task.completedAt).toLocaleString()}</span>}
+                </p>
+              </div>
+              {/* Admin can override/waive penalty by editing customPenalty */}
+              {loggedInUser?.role === 'admin' && isEditing && (
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-slate-400">Override ₹</span>
+                  <input
+                    type="number"
+                    min="0"
+                    defaultValue={task.customPenalty ?? task.penaltyAmount ?? 200}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      if (!isNaN(val) && val >= 0) {
+                        onSave({ ...task, customPenalty: val, penaltyAmount: val });
+                      }
+                    }}
+                    className="w-20 px-2 py-1 rounded-lg text-xs font-bold border border-red-800/50 bg-[#0D1631] text-red-300 outline-none focus:ring-1 focus:ring-red-500"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 7. Description */}
           <div className="space-y-1">
             <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">Description</label>
@@ -1249,6 +1376,90 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
               ) : null;
             })()}
 
+            {/* Bulk assign toolbar */}
+            <div className="relative" ref={bulkAssignRef}>
+              <div className={`flex items-center gap-1.5 flex-wrap px-2.5 py-1.5 rounded-lg border ${
+                theme === 'dark' ? 'bg-pink-500/5 border-pink-500/20' : 'bg-pink-50 border-pink-200'
+              }`}>
+                <button
+                  type="button"
+                  onClick={selectAllForBulkAssign}
+                  className={`text-[9px] font-bold px-2 py-0.5 rounded border transition cursor-pointer ${
+                    selectedSubtaskIdsForAssign.size === subTasks.length
+                      ? 'bg-pink-500/20 text-pink-400 border-pink-500/30'
+                      : theme === 'dark' ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-white text-slate-700 border-slate-200'
+                  }`}
+                >
+                  {selectedSubtaskIdsForAssign.size === subTasks.length ? 'Deselect All' : 'Select All'}
+                </button>
+                <span className="text-[9px] text-slate-500 font-mono">{selectedSubtaskIdsForAssign.size} subtasks</span>
+                <div className="w-px h-4 bg-slate-700/30 mx-0.5" />
+                <button
+                  type="button"
+                  onClick={() => setIsBulkAssignDropdownOpen(!isBulkAssignDropdownOpen)}
+                  className={`text-[9px] font-bold px-2 py-0.5 rounded border transition cursor-pointer ${
+                    selectedAssigneesForBulk.size > 0
+                      ? 'bg-pink-500/20 text-pink-400 border-pink-500/30'
+                      : theme === 'dark' ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-white text-slate-700 border-slate-200'
+                  }`}
+                >
+                  👥 {selectedAssigneesForBulk.size > 0 ? `${selectedAssigneesForBulk.size} selected` : 'Assign to...'}
+                </button>
+                {selectedSubtaskIdsForAssign.size > 0 && selectedAssigneesForBulk.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleBulkAssignSubTasks}
+                    className={`text-[9px] font-bold px-2 py-0.5 rounded border transition cursor-pointer ${
+                      theme === 'dark'
+                        ? 'bg-pink-500/20 text-pink-400 border-pink-500/30 hover:bg-pink-500/30'
+                        : 'bg-pink-100 text-pink-700 border-pink-200 hover:bg-pink-200'
+                    }`}
+                  >
+                    Assign to {Array.from(selectedAssigneesForBulk).length} employee(s)
+                  </button>
+                )}
+              </div>
+              {/* Employee multi-select dropdown */}
+              {isBulkAssignDropdownOpen && (
+                <div className={`absolute z-30 left-0 mt-1 rounded-xl shadow-2xl border p-2 flex flex-col gap-1 min-w-[200px] ${
+                  theme === 'dark' ? 'bg-[#141C38] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between px-1 pb-1 border-b border-slate-800/10 mb-1">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Select Employees</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedAssigneesForBulk.size === users.length) {
+                          setSelectedAssigneesForBulk(new Set());
+                        } else {
+                          setSelectedAssigneesForBulk(new Set(users.map(u => u.name)));
+                        }
+                      }}
+                      className="text-[9px] text-cyan-400 font-bold hover:underline"
+                    >
+                      {selectedAssigneesForBulk.size === users.length ? 'Clear' : 'All'}
+                    </button>
+                  </div>
+                  {users.map(u => (
+                    <label
+                      key={u.name}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] cursor-pointer hover:bg-slate-800/30 ${
+                        selectedAssigneesForBulk.has(u.name) ? 'text-pink-400 font-bold' : 'text-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedAssigneesForBulk.has(u.name)}
+                        onChange={() => toggleEmployeeForBulk(u.name)}
+                        className="accent-pink-500 w-3 h-3"
+                      />
+                      <span>{u.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* List */}
             <div className="space-y-2">
               {subTasks.map(st => (
@@ -1286,6 +1497,16 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                   <div className="flex-1 flex flex-col">
                   {/* Subtask main row */}
                   <div className="flex items-center gap-3 p-2.5">
+                    {/* Bulk assign selection checkbox */}
+                    {loggedInUser?.role === 'admin' && (
+                      <input
+                        type="checkbox"
+                        checked={selectedSubtaskIdsForAssign.has(st.id)}
+                        onChange={() => toggleSubtaskForBulkAssign(st.id)}
+                        className="w-4 h-4 rounded text-pink-500 bg-slate-900 border-slate-700 focus:ring-pink-500 accent-pink-500 flex-shrink-0"
+                        title="Select for bulk assign"
+                      />
+                    )}
                     {/* Selection checkbox for admin */}
                     {loggedInUser?.role === 'admin' && (
                       <input
@@ -1306,43 +1527,63 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                         <Square className="w-4.5 h-4.5 text-slate-400 hover:text-cyan-400" />
                       )}
                     </button>
-                    <span className={`text-xs font-medium transition flex-1 ${st.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
-                      {st.name}
-                    </span>
-                    {/* Comment toggle button */}
-                    <button
-                      type="button"
-                      onClick={() => toggleSubtaskComments(st.id)}
-                      className="p-1 rounded-md text-slate-400 hover:text-cyan-400 hover:bg-slate-800/20 transition"
-                    >
-                      <MessageSquare className="w-4 h-4" />
-                    </button>
-                    {st.approvedByAdmin ? (
-                      <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                        Approved
+                      <div className="flex flex-col flex-1 min-w-0">
+                      <span className={`text-xs font-medium transition ${st.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
+                        {st.name}
                       </span>
-                    ) : st.rejectedByAdmin ? (
-                      <span className="text-[10px] font-bold text-red-400 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20">
-                        Rejected
-                      </span>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => approveSubTask(st.id)}
-                          className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer"
-                          title="Approve subtask"
-                        >
-                          <ThumbsUp className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={() => rejectSubTask(st.id)}
-                          className="text-[10px] font-bold text-red-400 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition cursor-pointer"
-                          title="Reject subtask (user will need to redo)"
-                        >
-                          <ThumbsDown className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
+                      {/* Subtask date badges */}
+                      {(st.startDate || st.endDate) && (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {st.startDate && (
+                            <span className="text-[8px] font-bold text-slate-500 bg-slate-800/50 px-1.5 py-0.5 rounded border border-slate-700/30 whitespace-nowrap">
+                              Start: {st.startDate}
+                            </span>
+                          )}
+                          {st.endDate && (
+                            <span className="text-[8px] font-bold text-slate-500 bg-slate-800/50 px-1.5 py-0.5 rounded border border-slate-700/30 whitespace-nowrap">
+                              End: {st.endDate}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {/* Subtask assignee badge */}
+                      {st.assignTo && (
+                        <span className="text-[8px] font-bold text-pink-400 bg-pink-500/10 px-1.5 py-0.5 rounded border border-pink-500/20 mt-0.5 self-start whitespace-nowrap">
+                          👤 {st.assignTo}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {/* Comment toggle button */}
+                      <button
+                        type="button"
+                        onClick={() => toggleSubtaskComments(st.id)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-cyan-400 transition"
+                        title="Toggle comments"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                      </button>
+                      
+                      {/* Admin approve/reject buttons */}
+                      {loggedInUser?.role === 'admin' && !st.approvedByAdmin && (
+                        <>
+                          <button
+                            onClick={() => approveSubTask(st.id)}
+                            className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer"
+                            title="Approve subtask"
+                          >
+                            <ThumbsUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => rejectSubTask(st.id)}
+                            className="text-[10px] font-bold text-red-400 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition cursor-pointer"
+                            title="Reject subtask (user will need to redo)"
+                          >
+                            <ThumbsDown className="w-3 h-3" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   
                   {/* Expanded comments section */}
@@ -1400,24 +1641,54 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
             </div>
 
             {/* Quick Add Subtask */}
-            <form onSubmit={handleAddSubTask} className="flex gap-2">
-              <input
-                type="text"
-                value={newSubTaskName}
-                onChange={(e) => setNewSubTaskName(e.target.value)}
-                placeholder="Quick add subtask..."
-                className={`flex-1 px-3 py-1.5 rounded-xl text-xs font-semibold focus:ring-1 focus:ring-cyan-500 outline-none border ${
-                  theme === 'dark' 
-                    ? 'bg-[#141C38] border-slate-800 text-slate-200' 
-                    : 'bg-slate-50 border-slate-200 text-slate-800'
-                }`}
-              />
-              <button
-                type="submit"
-                className="px-3 py-1.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 text-xs font-black hover:bg-cyan-500/20 cursor-pointer transition"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+            <form onSubmit={handleAddSubTask} className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newSubTaskName}
+                  onChange={(e) => setNewSubTaskName(e.target.value)}
+                  placeholder="Quick add subtask..."
+                  className={`flex-1 px-3 py-1.5 rounded-xl text-xs font-semibold focus:ring-1 focus:ring-cyan-500 outline-none border ${
+                    theme === 'dark' 
+                      ? 'bg-[#141C38] border-slate-800 text-slate-200' 
+                      : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 text-xs font-black hover:bg-cyan-500/20 cursor-pointer transition"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1 flex items-center gap-1">
+                  <label className="text-[8px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Start</label>
+                  <input
+                    type="date"
+                    value={newSubTaskStartDate}
+                    onChange={(e) => setNewSubTaskStartDate(e.target.value)}
+                    className={`text-[10px] px-2 py-1 rounded-lg border outline-none flex-1 ${
+                      theme === 'dark'
+                        ? 'bg-slate-900 border-slate-700 text-slate-200'
+                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}
+                  />
+                </div>
+                <div className="flex-1 flex items-center gap-1">
+                  <label className="text-[8px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">End</label>
+                  <input
+                    type="date"
+                    value={newSubTaskEndDate}
+                    onChange={(e) => setNewSubTaskEndDate(e.target.value)}
+                    className={`text-[10px] px-2 py-1 rounded-lg border outline-none flex-1 ${
+                      theme === 'dark'
+                        ? 'bg-slate-900 border-slate-700 text-slate-200'
+                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}
+                  />
+                </div>
+              </div>
             </form>
           </div>
 
@@ -1500,11 +1771,11 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                   <div className="flex items-center gap-2">
                     <Paperclip className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
                     <span 
-                      onClick={() => window.open(file.startsWith('http') ? file : `#${file}`, '_blank')}
+                      onClick={() => openDocument(file)}
                       className="text-xs font-mono font-bold text-slate-300 truncate max-w-[200px] cursor-pointer hover:text-cyan-400 hover:underline"
-                      title="Click to open"
+                      title="Click to open document"
                     >
-                      {file.split('/').pop()}
+                      {file.startsWith('data:') ? 'uploaded_file' : file.split('/').pop()}
                     </span>
                   </div>
                   <button
@@ -1530,11 +1801,11 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                   <div className="flex items-center gap-2">
                     <Paperclip className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
                     <span 
-                      onClick={() => window.open(file.startsWith('http') ? file : `#${file}`, '_blank')}
+                      onClick={() => openDocument(file)}
                       className="text-xs font-mono font-bold text-emerald-300 truncate max-w-[200px] cursor-pointer hover:text-emerald-400 hover:underline"
-                      title="Click to open"
+                      title="Click to open document"
                     >
-                      {file.split('/').pop()}
+                      {file.startsWith('data:') ? 'user_uploaded_doc' : file.split('/').pop()}
                     </span>
                   </div>
                   <button

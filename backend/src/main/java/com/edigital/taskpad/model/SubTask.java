@@ -7,6 +7,8 @@ public class SubTask {
     private String name;
     private boolean completed;
     private String date; // Date associated with the subtask (YYYY-MM-DD)
+    private String startDate; // Start date for the subtask (YYYY-MM-DD)
+    private String endDate;   // End date for the subtask (YYYY-MM-DD)
 
     // Admin approval gate (workflow): only approved + completed subtasks allow main task completion
     private boolean approvedByAdmin;
@@ -15,6 +17,12 @@ public class SubTask {
     // Admin rejection: when admin rejects, completed is reset to false so user can redo
     private boolean rejectedByAdmin;
     private String rejectedByAdminAt;
+
+    // Subtask-level assignee (single)
+    private String assignTo;
+
+    // Subtask-level multiple assignees
+    private List<String> assignees;
 
     // Subtask-level comments (admin + user)
     private List<Comment> comments;
@@ -54,6 +62,12 @@ public class SubTask {
     public String getDate() { return date; }
     public void setDate(String date) { this.date = date; }
 
+    public String getStartDate() { return startDate; }
+    public void setStartDate(String startDate) { this.startDate = startDate; }
+
+    public String getEndDate() { return endDate; }
+    public void setEndDate(String endDate) { this.endDate = endDate; }
+
     public boolean isCompleted() { return completed; }
     public void setCompleted(boolean completed) { this.completed = completed; }
 
@@ -68,6 +82,12 @@ public class SubTask {
 
     public String getRejectedByAdminAt() { return rejectedByAdminAt; }
     public void setRejectedByAdminAt(String rejectedByAdminAt) { this.rejectedByAdminAt = rejectedByAdminAt; }
+
+    public String getAssignTo() { return assignTo; }
+    public void setAssignTo(String assignTo) { this.assignTo = assignTo; }
+
+    public List<String> getAssignees() { return assignees; }
+    public void setAssignees(List<String> assignees) { this.assignees = assignees; }
 
     public List<Comment> getComments() { return comments; }
     public void setComments(List<Comment> comments) { this.comments = comments; }

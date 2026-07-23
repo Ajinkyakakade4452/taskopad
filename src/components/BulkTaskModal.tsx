@@ -22,7 +22,6 @@ interface TaskRow {
   dueDate: string;
   assignTo: string;
   status: TaskStatus;
-  client: string;
   service: string;
   time: string;
 }
@@ -50,7 +49,6 @@ function makeEmptyRow(users: BulkTaskModalProps['users']): TaskRow {
     dueDate: new Date().toISOString().split('T')[0],
     assignTo: users[0]?.name || '',
     status: 'Pending',
-    client: '',
     service: '',
     time: '11:00 AM - 12:30 PM',
   };
@@ -70,6 +68,7 @@ const statusColors: Record<TaskStatus, string> = {
   'Under Review': 'text-violet-400 bg-violet-500/10 border-violet-500/30',
   'Rejected':     'text-red-400 bg-red-500/10 border-red-500/30',
   'Incomplete':   'text-orange-400 bg-orange-500/10 border-orange-500/30',
+  'Approved':     'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
 };
 
 export default function BulkTaskModal({ theme, isOpen, onClose, onSaveMultiple, users }: BulkTaskModalProps) {
@@ -152,12 +151,12 @@ export default function BulkTaskModal({ theme, isOpen, onClose, onSaveMultiple, 
       project: r.project,
       projects: [r.project],
       priority: r.priority,
+      startDate: r.dueDate,
       dueDate: r.dueDate,
       time: r.time || '11:00 AM - 12:30 PM',
       assignTo: r.assignTo,
       assignees: [r.assignTo],
       status: r.status,
-      client: r.client || '',
       service: r.service || '',
       follower: '',
       documents: [],
@@ -389,9 +388,6 @@ export default function BulkTaskModal({ theme, isOpen, onClose, onSaveMultiple, 
                       Time Slot
                     </th>
                     <th className="px-2 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider min-w-[100px]">
-                      Client
-                    </th>
-                    <th className="px-2 py-2.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider min-w-[100px]">
                       Service
                     </th>
                   </>
@@ -505,15 +501,6 @@ export default function BulkTaskModal({ theme, isOpen, onClose, onSaveMultiple, 
                           <select value={row.time} onChange={e => update(row.rowId, 'time', e.target.value)} className={selectCls}>
                             {TIME_SLOTS.map(t => <option key={t} value={t}>{t}</option>)}
                           </select>
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            type="text"
-                            placeholder="Client..."
-                            value={row.client}
-                            onChange={e => update(row.rowId, 'client', e.target.value)}
-                            className={inputCls}
-                          />
                         </td>
                         <td className="px-2 py-2">
                           <input

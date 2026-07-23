@@ -37,35 +37,34 @@ public class Task {
 
     private String status;
 
-    private String client;
     private String service;
     private String follower;
 
     @Convert(converter = ListStringConverter.class)
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "LONGTEXT")
     private List<String> documents;
 
     @Convert(converter = SubTaskListConverter.class)
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "LONGTEXT")
     private List<SubTask> subTasks;
 
     @Convert(converter = ChecklistConverter.class)
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "LONGTEXT")
     private List<ChecklistItem> checklist;
 
     @Convert(converter = CommentListConverter.class)
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "LONGTEXT")
     private List<Comment> comments;
 
     @Convert(converter = TimeLogListConverter.class)
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "LONGTEXT")
     private List<TimeLog> timeLogs;
 
     @Column(name = "documents_mandatory")
     private Boolean documentsMandatory = false;
 
     @Convert(converter = ListStringConverter.class)
-    @Column(columnDefinition = "TEXT", name = "user_documents")
+    @Column(columnDefinition = "LONGTEXT", name = "user_documents")
     private List<String> userDocuments;
 
     @Column(name = "is_draft")
@@ -86,6 +85,18 @@ public class Task {
 
     @Column(name = "reminder_before")
     private String reminderBefore;
+
+    @Column(name = "penalty_amount")
+    private Double penaltyAmount = 0.0;
+
+    @Column(name = "is_penalized")
+    private Boolean isPenalized = false;
+
+    @Column(name = "custom_penalty")
+    private Double customPenalty;
+
+    @Column(name = "completed_at")
+    private String completedAt;
 
     // Constructors
     public Task() {}
@@ -123,9 +134,6 @@ public class Task {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
-
-    public String getClient() { return client; }
-    public void setClient(String client) { this.client = client; }
 
     public String getService() { return service; }
     public void setService(String service) { this.service = service; }
@@ -171,4 +179,16 @@ public class Task {
 
     public String getReminderBefore() { return reminderBefore; }
     public void setReminderBefore(String reminderBefore) { this.reminderBefore = reminderBefore; }
+
+    public Double getPenaltyAmount() { return penaltyAmount; }
+    public void setPenaltyAmount(Double penaltyAmount) { this.penaltyAmount = penaltyAmount; }
+
+    public Boolean getIsPenalized() { return isPenalized; }
+    public void setIsPenalized(Boolean isPenalized) { this.isPenalized = isPenalized; }
+
+    public Double getCustomPenalty() { return customPenalty; }
+    public void setCustomPenalty(Double customPenalty) { this.customPenalty = customPenalty; }
+
+    public String getCompletedAt() { return completedAt; }
+    public void setCompletedAt(String completedAt) { this.completedAt = completedAt; }
 }

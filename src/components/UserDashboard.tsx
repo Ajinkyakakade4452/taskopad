@@ -38,6 +38,8 @@ import {
   ThumbsDown,
 } from 'lucide-react';
 import { Task, TaskStatus } from '../types';
+import { openDocument, readFileAsDataURL } from '../utils/documentViewer';
+import { checkAndApplyTaskPenalty } from '../utils/penaltyUtils';
 import ProjectsSection from './ProjectsSection';
 import DiscussionCard from './DiscussionCard';
 import DocumentsPage from './DocumentsPage';
@@ -206,21 +208,27 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
     if (!selectedTask || !fileToUpload) return;
     
     let uploadedUrl = newAttachmentName.trim();
-    try {
-      const formData = new FormData();
-      formData.append('file', fileToUpload);
-      
-      const uploadRes = await fetch('http://localhost:8081/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      if (uploadRes.ok) {
-        const data = await uploadRes.json();
-        uploadedUrl = 'http://localhost:8081' + data.url;
+    if (fileToUpload) {
+      try {
+        const formData = new FormData();
+        formData.append('file', fileToUpload);
+        
+        const uploadRes = await fetch(`${API_BASE}/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (uploadRes.ok) {
+          const data = await uploadRes.json();
+          uploadedUrl = data.url;
+        } else {
+          uploadedUrl = await readFileAsDataURL(fileToUpload);
+        }
+      } catch (err) {
+        console.error('File upload fallback to data URL', err);
+        uploadedUrl = await readFileAsDataURL(fileToUpload);
       }
-    } catch (err) {
-      console.error('File upload failed', err);
     }
+    if (!uploadedUrl) uploadedUrl = fileToUpload.name;
 
     const updatedUserDocuments = [...(selectedTask.userDocuments || []), uploadedUrl];
     const updated = { ...selectedTask, userDocuments: updatedUserDocuments };
@@ -335,7 +343,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
         );
 
         return matchesName || matchesEmail;
-      }).filter(t => t.status !== 'Completed');
+      }).filter(t => t.status !== 'Completed').map(t => checkAndApplyTaskPenalty(t));
 
       setTasks(myTasks);
     } catch {
@@ -357,7 +365,43 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
     const taskId = task.id;
     setUpdatingId(taskId);
     try {
-      const updated = { ...task, status: newStatus };
+      // ── Penalty check when completing/submitting a task ──────────────────────
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const isLate = !!(task.dueDate && task.dueDate < todayStr);
+
+      let penaltyData: { isPenalized?: boolean; penaltyAmount?: number; completedAt?: string } = {};
+      if ((newStatus === 'Completed' || newStatus === 'Under Review') && isLate) {
+        // Load penalty config from localStorage
+        let penaltyRate = 200;
+        try {
+          const stored = localStorage.getItem('taskpad_penalty_config');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (!parsed.enabled) {
+              penaltyRate = 0;
+            } else {
+              penaltyRate = typeof task.customPenalty === 'number' && task.customPenalty >= 0
+                ? task.customPenalty
+                : (typeof parsed.amount === 'number' ? parsed.amount : 200);
+            }
+          }
+        } catch { /* ignore */ }
+
+        if (penaltyRate > 0) {
+          penaltyData = {
+            isPenalized: true,
+            penaltyAmount: penaltyRate,
+            completedAt: now.toISOString(),
+          };
+        }
+      } else if (newStatus === 'Completed' || newStatus === 'Under Review') {
+        penaltyData = {
+          completedAt: now.toISOString(),
+        };
+      }
+
+      const updated = { ...task, status: newStatus, ...penaltyData };
 
       const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
         method: 'PUT',
@@ -366,14 +410,19 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
       });
 
       if (res.ok) {
-        setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)));
-        if (selectedTask?.id === taskId) setSelectedTask({ ...selectedTask, status: newStatus });
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, ...penaltyData } : t)));
+        if (selectedTask?.id === taskId) setSelectedTask({ ...selectedTask, status: newStatus, ...penaltyData });
 
         // Toast notification
+        const isPenalized = penaltyData.isPenalized;
+        const penaltyAmt = penaltyData.penaltyAmount;
+
         addNotification({
           type: newStatus === 'Completed' ? 'success' : 'info',
-          title: 'Task updated',
-          message: `${task.name} is now ${newStatus}`,
+          title: isPenalized ? `⚠️ Penalty Applied — ₹${penaltyAmt}` : 'Task updated',
+          message: isPenalized
+            ? `${task.name} was completed LATE. A penalty of ₹${penaltyAmt} has been applied.`
+            : `${task.name} is now ${newStatus}`,
         });
 
         // ── Notify Admin: user submitted for review ──────────────────────────────
@@ -409,6 +458,57 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
     // Optimistic UI update
     setTasks((prev) => prev.map((t) => (t.id === task.id ? updatedTask : t)));
     setSelectedTask(updatedTask);
+
+    try {
+      await fetch(`${API_BASE}/tasks/${task.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedTask),
+      });
+    } catch {
+      // revert on failure
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
+      setSelectedTask(task);
+    }
+  };
+
+  // Subtask comment expand state
+  const [expandedSubtaskId, setExpandedSubtaskId] = useState<string | null>(null);
+  const [subtaskNewCommentText, setSubtaskNewCommentText] = useState('');
+
+  // Toggle subtask comments expand/collapse
+  const toggleSubtaskComments = (subtaskId: string) => {
+    setExpandedSubtaskId(expandedSubtaskId === subtaskId ? null : subtaskId);
+    setSubtaskNewCommentText('');
+  };
+
+  // Add comment to a specific subtask (User Dashboard)
+  const handleAddSubtaskComment = async (e: React.FormEvent, task: Task, subtaskId: string) => {
+    e.preventDefault();
+    if (!subtaskNewCommentText.trim()) return;
+
+    const newComment = {
+      id: `sub-comment-${Date.now()}`,
+      author: user.name,
+      text: subtaskNewCommentText.trim(),
+      date: new Date().toLocaleString()
+    };
+
+    const updatedSubTasks = (task.subTasks || []).map((st) => {
+      if (st.id === subtaskId) {
+        return { ...st, comments: [...(st.comments || []), newComment] };
+      }
+      return st;
+    });
+
+    // Also append to main task-level comments array
+    const updatedComments = [...(task.comments || []), newComment];
+    const updatedTask: Task = { ...task, subTasks: updatedSubTasks, comments: updatedComments };
+
+    // Optimistic UI update
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? updatedTask : t)));
+    setSelectedTask(updatedTask);
+    setSubtaskNewCommentText('');
 
     try {
       await fetch(`${API_BASE}/tasks/${task.id}`, {
@@ -573,7 +673,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                   className="w-full px-3 py-2 rounded-xl text-xs border outline-none focus:ring-1 focus:ring-cyan-400 bg-[#0D1631] border-slate-800 text-slate-200"
                 >
                   <option value="Any">Any</option>
-                  <option value="TodayFuture">Today & Future</option>
+                  <option value="TodayFuture">Main Tasks</option>
                   <option value="Overdue">Overdue</option>
                 </select>
               </div>
@@ -856,6 +956,11 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                       >
                         {task.name}
                       </span>
+                      {(task.isPenalized || overdue) && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-red-950/60 text-red-400 border border-red-800/50 flex-shrink-0">
+                          ⚠️ ₹{task.penaltyAmount ?? 200}
+                        </span>
+                      )}
                     </div>
 
                     <div>
@@ -964,7 +1069,6 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                   { label: 'Assigned To', value: selectedTask.assignTo },
                   { label: 'Due Date', value: formatDate(selectedTask.dueDate) },
                   { label: 'Time Slot', value: (selectedTask as any).time || '—' },
-                  { label: 'Client', value: (selectedTask as any).client || '—' },
                   { label: 'Service', value: (selectedTask as any).service || '—' },
                 ].map((field) => (
                   <div key={field.label} className="p-3 bg-slate-800/40 rounded-xl border border-slate-700/30">
@@ -973,6 +1077,20 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                   </div>
                 ))}
               </div>
+
+              {/* Penalty Badge */}
+              {selectedTask.isPenalized && (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-red-800/50 bg-red-950/30 animate-pulse">
+                  <span className="text-lg">⚠️</span>
+                  <div>
+                    <p className="text-xs font-extrabold text-red-400 uppercase tracking-wider">Late Penalty Applied</p>
+                    <p className="text-[11px] text-red-300/80 mt-0.5">
+                      This task was completed after its due date. A penalty of{' '}
+                      <span className="font-extrabold text-red-300">₹{selectedTask.penaltyAmount ?? 200}</span> has been applied.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Subtask completion gate notice */}
               {(() => {
@@ -1056,53 +1174,124 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                     {selectedTask.subTasks.map((st: any) => {
                       const isRejected = st.rejectedByAdmin === true;
                       const isApproved = st.approvedByAdmin === true && st.completed;
+                      const isExpanded = expandedSubtaskId === st.id;
                       return (
-                        <button
-                          key={st.id}
-                          onClick={() => {
-                            if (isRejected) return; // Can't toggle rejected subtasks, user needs to redo from TaskModal
-                            handleToggleSubTask(selectedTask, st.id);
-                          }}
-                          className={`w-full flex items-center gap-2.5 p-2.5 rounded-lg border transition cursor-pointer group ${
+                        <div key={st.id} className="overflow-hidden">
+                          {/* Subtask main row */}
+                          <div className={`flex items-center gap-1.5 p-2.5 rounded-lg border transition cursor-pointer group ${
                             isRejected
                               ? 'bg-red-500/8 border-red-500/20 hover:bg-red-500/15'
                               : isApproved
                               ? 'bg-emerald-500/8 border-emerald-500/20 hover:bg-emerald-500/15'
                               : 'bg-slate-800/30 border-slate-700/20 hover:bg-slate-700/40'
-                          }`}
-                        >
-                          {isRejected ? (
-                            <ThumbsDown className="w-4 h-4 text-red-500 flex-shrink-0" />
-                          ) : isApproved ? (
-                            <CheckSquare className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                          ) : st.completed ? (
-                            <CheckSquare className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                          ) : (
-                            <Square className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 flex-shrink-0 transition" />
+                          } ${isExpanded ? 'rounded-b-none border-b-0' : ''}`}>
+                            <button
+                              onClick={() => {
+                                if (isRejected) return;
+                                handleToggleSubTask(selectedTask, st.id);
+                              }}
+                              className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
+                            >
+                              {isRejected ? (
+                                <ThumbsDown className="w-4 h-4 text-red-500 flex-shrink-0" />
+                              ) : isApproved ? (
+                                <CheckSquare className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                              ) : st.completed ? (
+                                <CheckSquare className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                              ) : (
+                                <Square className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 flex-shrink-0 transition" />
+                              )}
+                              <span className={`text-xs transition flex-1 ${
+                                isRejected
+                                  ? 'line-through text-red-400'
+                                  : isApproved
+                                  ? 'line-through text-slate-500'
+                                  : st.completed
+                                  ? 'line-through text-slate-500'
+                                  : 'text-slate-200 group-hover:text-white'
+                              }`}>
+                                {st.name}
+                              </span>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0 ${
+                                isRejected
+                                  ? 'bg-red-500/10 text-red-400'
+                                  : isApproved
+                                  ? 'bg-emerald-500/10 text-emerald-400'
+                                  : st.completed
+                                  ? 'bg-emerald-500/10 text-emerald-400'
+                                  : 'bg-amber-500/10 text-amber-400'
+                              }`}>
+                                {isRejected ? 'Rejected' : isApproved ? 'Approved' : st.completed ? 'Done' : 'Pending'}
+                              </span>
+                            </button>
+                            {/* Comment toggle button */}
+                            <button
+                              type="button"
+                              onClick={() => setExpandedSubtaskId(isExpanded ? null : st.id)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-cyan-400 hover:bg-slate-700/50 transition flex-shrink-0"
+                              title="Toggle comments"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              {(st.comments || []).length > 0 && (
+                                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-cyan-500 text-[7px] font-bold text-white flex items-center justify-center">
+                                  {st.comments.length}
+                                </span>
+                              )}
+                            </button>
+                          </div>
+                          {/* Expanded comments section */}
+                          {isExpanded && (
+                            <div className={`px-4 pb-3 pt-2 space-y-2 border border-t-0 rounded-b-lg ${
+                              isRejected
+                                ? 'bg-red-500/5 border-red-500/20'
+                                : isApproved
+                                ? 'bg-emerald-500/5 border-emerald-500/20'
+                                : 'bg-slate-800/20 border-slate-700/20'
+                            }`}>
+                              {/* Existing comments */}
+                              {(st.comments || []).length > 0 ? (
+                                <div className="space-y-1.5 max-h-[200px] overflow-y-auto custom-scrollbar">
+                                  {(st.comments || []).map((comment: any) => (
+                                    <div key={comment.id} className="space-y-0.5">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-bold text-cyan-400">{comment.author}</span>
+                                        <span className="text-[8px] text-slate-500 font-mono">{comment.date}</span>
+                                      </div>
+                                      <p className="text-[11px] px-2.5 py-1 rounded-lg border leading-relaxed bg-slate-900/50 border-slate-700/30 text-slate-300">
+                                        {comment.text}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-[11px] text-slate-500">No comments yet.</p>
+                              )}
+                              {/* Add comment form */}
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  handleAddSubtaskComment(e, selectedTask, st.id);
+                                }}
+                                className="flex gap-2 pt-1"
+                              >
+                                <input
+                                  type="text"
+                                  value={subtaskNewCommentText}
+                                  onChange={(e) => setSubtaskNewCommentText(e.target.value)}
+                                  placeholder="Add a comment..."
+                                  className="flex-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium focus:ring-1 focus:ring-cyan-500 outline-none border bg-slate-900 border-slate-700 text-slate-200"
+                                />
+                                <button
+                                  type="submit"
+                                  disabled={!subtaskNewCommentText.trim()}
+                                  className="px-2.5 py-1.5 rounded-lg bg-cyan-500 text-slate-950 text-[10px] font-black hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                                >
+                                  Send
+                                </button>
+                              </form>
+                            </div>
                           )}
-                          <span className={`text-xs text-left flex-1 transition ${
-                            isRejected
-                              ? 'line-through text-red-400'
-                              : isApproved
-                              ? 'line-through text-slate-500'
-                              : st.completed
-                              ? 'line-through text-slate-500'
-                              : 'text-slate-200 group-hover:text-white'
-                          }`}>
-                            {st.name}
-                          </span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0 ${
-                            isRejected
-                              ? 'bg-red-500/10 text-red-400'
-                              : isApproved
-                              ? 'bg-emerald-500/10 text-emerald-400'
-                              : st.completed
-                              ? 'bg-emerald-500/10 text-emerald-400'
-                              : 'bg-amber-500/10 text-amber-400'
-                          }`}>
-                            {isRejected ? 'Rejected' : isApproved ? 'Approved' : st.completed ? 'Done' : 'Pending'}
-                          </span>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -1122,11 +1311,11 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                       <div className="flex items-center gap-2">
                         <Paperclip className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
                         <span 
-                          onClick={() => window.open(doc.startsWith('http') ? doc : `#${doc}`, '_blank')}
+                          onClick={() => openDocument(doc)}
                           className="text-xs font-mono text-slate-300 truncate max-w-[200px] cursor-pointer hover:text-cyan-400 hover:underline"
-                          title="Click to open"
+                          title="Click to open document"
                         >
-                          {doc.split('/').pop()}
+                          {doc.startsWith('data:') ? 'admin_document' : doc.split('/').pop()}
                         </span>
                       </div>
                       <span className="text-[9px] font-bold text-cyan-400/70 bg-cyan-500/10 px-1.5 py-0.5 rounded">Admin</span>
@@ -1142,11 +1331,11 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                       <div className="flex items-center gap-2">
                         <Paperclip className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
                         <span 
-                          onClick={() => window.open(doc.startsWith('http') ? doc : `#${doc}`, '_blank')}
+                          onClick={() => openDocument(doc)}
                           className="text-xs font-mono text-emerald-300 truncate max-w-[200px] cursor-pointer hover:text-emerald-400 hover:underline"
-                          title="Click to open"
+                          title="Click to open document"
                         >
-                          {doc.split('/').pop()}
+                          {doc.startsWith('data:') ? 'user_document' : doc.split('/').pop()}
                         </span>
                       </div>
                       <button
@@ -1326,7 +1515,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
           {/* Summary cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30">
-              <div className="text-[10px] font-bold uppercase text-slate-500">Today & Future</div>
+              <div className="text-[10px] font-bold uppercase text-slate-500">Main Tasks</div>
               <div className="text-3xl font-extrabold text-cyan-300 mt-2">{todayTasks.length}</div>
               <div className="text-xs text-slate-400 mt-1">Upcoming work items</div>
             </div>

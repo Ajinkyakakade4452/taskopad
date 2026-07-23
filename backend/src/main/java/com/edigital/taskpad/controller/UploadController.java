@@ -27,7 +27,7 @@ public class UploadController {
             }
 
             // Create uploads directory if it doesn't exist
-            Path uploadPath = Paths.get(UPLOAD_DIR);
+            Path uploadPath = Paths.get(UPLOAD_DIR).toAbsolutePath().normalize();
             if (!Files.exists(uploadPath)) {
                 Files.createDirectories(uploadPath);
             }
@@ -42,8 +42,10 @@ public class UploadController {
             String uniqueFilename = UUID.randomUUID().toString() + extension;
             Path filePath = uploadPath.resolve(uniqueFilename);
 
-            // Save the file
-            file.transferTo(filePath.toFile());
+            // Save the file safely
+            try (java.io.InputStream inputStream = file.getInputStream()) {
+                Files.copy(inputStream, filePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
 
             // Return URL that matches WebConfig resource handler
             String fileUrl = "/uploads/" + uniqueFilename;
@@ -52,6 +54,7 @@ public class UploadController {
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            e.printStackTrace();
             response.put("error", "Could not upload file: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }

@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Check, CheckCircle2, Circle, Clock, Flame, Star, AlertCircle, Send, ThumbsUp, ThumbsDown, Square, CheckSquare, Trash2, Search, Filter, RotateCcw } from 'lucide-react';
 import { Task, Priority, TaskStatus } from '../types';
+import { checkAndApplyTaskPenalty } from '../utils/penaltyUtils';
 
 interface TaskTableProps {
   theme: 'dark' | 'light';
@@ -87,7 +88,7 @@ export default function TaskTable({
   };
   const today = getTodayDate();
 
-  const allTasks = tasks;
+  const allTasks = useMemo(() => tasks.map(t => checkAndApplyTaskPenalty(t)), [tasks]);
 
   // Exclude completed tasks UNLESS they are currently animating (completing/fading)
   const todayTasks = allTasks.filter(t =>
@@ -577,7 +578,8 @@ export default function TaskTable({
               <th className="px-5 py-3.5 font-semibold text-slate-400">Due Date</th>
               <th className="px-5 py-3.5 font-semibold text-slate-400">Assignee</th>
               <th className="px-5 py-3.5 font-semibold text-slate-400">Priority</th>
-              <th className="px-5 py-3.5 font-semibold text-slate-400 rounded-tr-xl text-center">Status</th>
+              <th className="px-5 py-3.5 font-semibold text-slate-400 text-center">Status</th>
+              <th className="px-5 py-3.5 font-semibold text-red-400/70 text-center rounded-tr-xl">Penalty</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/10">
@@ -926,6 +928,17 @@ export default function TaskTable({
                       >
                         Delete
                       </button>
+                    )}
+                  </td>
+
+                  {/* Penalty Column */}
+                  <td className="px-5 py-4 text-center">
+                    {task.isPenalized ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[9px] font-extrabold bg-red-950/40 text-red-400 border border-red-800/40 whitespace-nowrap">
+                        ⚠️ ₹{task.penaltyAmount ?? 200}
+                      </span>
+                    ) : (
+                      <span className="text-slate-600 text-[9px]">—</span>
                     )}
                   </td>
                 </tr>

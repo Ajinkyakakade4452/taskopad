@@ -16,13 +16,13 @@ import {
   Activity,
   FileText,
   ChevronDown,
-  Briefcase,
   Users,
   Eye,
   CheckSquare,
   ListTodo
 } from 'lucide-react';
 import { Task, Priority, TaskStatus } from '../types';
+import { openDocument } from '../utils/documentViewer';
 
 interface TaskModalProps {
   theme: 'dark' | 'light';
@@ -83,17 +83,6 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
   const [endTime, setEndTime] = useState('');
   const [reminderBefore, setReminderBefore] = useState('30 minutes before');
 
-  // --- Clients State ---
-  const [clientsList, setClientsList] = useState<string[]>(() => {
-    const saved = localStorage.getItem('taskpad_clients');
-    return saved ? JSON.parse(saved) : ['Om Associates', 'YouGo Corp', 'Net Access Labs', 'Star Logistics'];
-  });
-  const [selectedClient, setSelectedClient] = useState('Net Access Labs');
-  const [newClientName, setNewClientName] = useState('');
-  const [showAddClientInput, setShowAddClientInput] = useState(false);
-  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
-  const clientRef = useRef<HTMLDivElement>(null);
-
   // --- Services State ---
   const [servicesList, setServicesList] = useState<string[]>(() => {
     const saved = localStorage.getItem('taskpad_services');
@@ -115,14 +104,28 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Sub Tasks State ---
-  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean; date?: string; assignTo?: string; comments?: { id: string; author: string; text: string; date: string }[] }[]>([]);
+  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean; date?: string; startDate?: string; endDate?: string; assignTo?: string; comments?: { id: string; author: string; text: string; date: string }[] }[]>([]);
   const [newSubTaskName, setNewSubTaskName] = useState('');
   const [newSubTaskDate, setNewSubTaskDate] = useState(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
   });
+  const [newSubTaskStartDate, setNewSubTaskStartDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [newSubTaskEndDate, setNewSubTaskEndDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
   const [subtaskExpandedId, setSubtaskExpandedId] = useState<string | null>(null);
   const [subtaskNewComment, setSubtaskNewComment] = useState('');
+  
+  // Bulk assign subtask state
+  const [selectedSubtaskIdsForAssign, setSelectedSubtaskIdsForAssign] = useState<Set<string>>(new Set());
+  const [selectedAssigneesForBulk, setSelectedAssigneesForBulk] = useState<Set<string>>(new Set());
+  const [isBulkAssignDropdownOpen, setIsBulkAssignDropdownOpen] = useState(false);
+  const bulkAssignRef = useRef<HTMLDivElement>(null);
 
   // --- Checklist State ---
   const [checklist, setChecklist] = useState<{ id: string; name: string; checked: boolean }[]>([]);
@@ -154,11 +157,6 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
   const projectRef = useRef<HTMLDivElement>(null);
   const assigneeRef = useRef<HTMLDivElement>(null);
 
-  // Persist clients and services to localStorage
-  useEffect(() => {
-    localStorage.setItem('taskpad_clients', JSON.stringify(clientsList));
-  }, [clientsList]);
-  
   // --- Fetch Projects ---
   useEffect(() => {
     if (isOpen) {
@@ -209,8 +207,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
       setSelectedAssignees([editingTask.assignTo]);
     }
     
-    // Client, Service, Follower
-    if (editingTask.client) setSelectedClient(editingTask.client);
+    // Service, Follower
     if (editingTask.service) setSelectedService(editingTask.service);
     if (editingTask.follower) setSelectedFollower(editingTask.follower);
     
@@ -258,14 +255,6 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
   }, [editingTask]);
 
   // Delete handlers
-  const handleDeleteClient = (clientName: string) => {
-    setClientsList(prev => prev.filter(c => c !== clientName));
-    if (selectedClient === clientName) {
-      setSelectedClient(clientsList[0] || '');
-    }
-    addActivity(`Deleted client worksite: ${clientName}`);
-  };
-
   const handleDeleteService = (serviceName: string) => {
     setServicesList(prev => prev.filter(s => s !== serviceName));
     if (selectedService === serviceName) {
@@ -282,11 +271,11 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
       if (assigneeRef.current && !assigneeRef.current.contains(event.target as Node)) {
         setIsAssigneeDropdownOpen(false);
       }
-      if (clientRef.current && !clientRef.current.contains(event.target as Node)) {
-        setIsClientDropdownOpen(false);
-      }
       if (serviceRef.current && !serviceRef.current.contains(event.target as Node)) {
         setIsServiceDropdownOpen(false);
+      }
+      if (bulkAssignRef.current && !bulkAssignRef.current.contains(event.target as Node)) {
+        setIsBulkAssignDropdownOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -389,18 +378,6 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
   };
 
   // --- Dynamic Inline Adders ---
-  const handleCreateClient = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newClientName.trim() && !clientsList.includes(newClientName.trim())) {
-      const addedClient = newClientName.trim();
-      setClientsList((prev) => [...prev, addedClient]);
-      setSelectedClient(addedClient);
-      setNewClientName('');
-      setShowAddClientInput(false);
-      addActivity(`Registered client workspace: ${addedClient}`);
-    }
-  };
-
   const handleCreateService = (e: React.FormEvent) => {
     e.preventDefault();
     if (newServiceName.trim() && !servicesList.includes(newServiceName.trim())) {
@@ -433,10 +410,10 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
         try {
           const formData = new FormData();
           formData.append('file', file);
-          const res = await fetch('http://localhost:8081/api/upload', { method: 'POST', body: formData });
+          const res = await fetch('/api/upload', { method: 'POST', body: formData });
           if (res.ok) {
             const data = await res.json();
-            urls.push('http://localhost:8081' + data.url);
+            urls.push(data.url);
           } else {
             urls.push(file.name);
           }
@@ -457,10 +434,10 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
         try {
           const formData = new FormData();
           formData.append('file', file);
-          const res = await fetch('http://localhost:8081/api/upload', { method: 'POST', body: formData });
+          const res = await fetch('/api/upload', { method: 'POST', body: formData });
           if (res.ok) {
             const data = await res.json();
-            urls.push('http://localhost:8081' + data.url);
+            urls.push(data.url);
           } else {
             urls.push(file.name);
           }
@@ -487,6 +464,8 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
         name: newSubTaskName.trim(),
         completed: false,
         date: newSubTaskDate || '',
+        startDate: newSubTaskStartDate || '',
+        endDate: newSubTaskEndDate || '',
         comments: []
       };
       setSubTasks((prev) => [...prev, newSub]);
@@ -506,20 +485,27 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
     e.preventDefault();
     if (!subtaskNewComment.trim()) return;
     
+    const newComment = {
+      id: `sub-comment-${Date.now()}`,
+      author: loggedInUser?.name || 'Unknown',
+      text: subtaskNewComment.trim(),
+      date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    
     const updatedSubTasks = subTasks.map(st => {
       if (st.id === id) {
-        const newComment = {
-          id: `sub-comment-${Date.now()}`,
-          author: loggedInUser?.name || 'Unknown',
-          text: subtaskNewComment.trim(),
-          date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
         return { ...st, comments: [...(st.comments || []), newComment] };
       }
       return st;
     });
     setSubTasks(updatedSubTasks);
+    
+    // Also append the comment to the main task-level comments array
+    setComments(prev => [...prev, newComment]);
+    
     setSubtaskNewComment('');
+    
+    addActivity(`Added comment to subtask: "${newComment.text.substring(0, 30)}..."`);
   };
 
   const handleToggleSubTask = (id: string) => {
@@ -548,6 +534,46 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
   const handleRemoveSubTask = (id: string, subName: string) => {
     setSubTasks((prev) => prev.filter((sub) => sub.id !== id));
     addActivity(`Removed sub task: "${subName}"`);
+  };
+
+  // Bulk assign selected subtasks to selected employees
+  const handleBulkAssignSubTasks = () => {
+    if (selectedAssigneesForBulk.size === 0 || selectedSubtaskIdsForAssign.size === 0) return;
+    const assigneesList = Array.from(selectedAssigneesForBulk);
+    setSubTasks(prev => prev.map(st => 
+      selectedSubtaskIdsForAssign.has(st.id) ? { ...st, assignTo: assigneesList[0], assignees: assigneesList } : st
+    ));
+    addActivity(`Bulk assigned ${selectedSubtaskIdsForAssign.size} subtask(s) to ${assigneesList.join(', ')}`);
+    setSelectedSubtaskIdsForAssign(new Set());
+    setSelectedAssigneesForBulk(new Set());
+  };
+
+  // Toggle employee selection for bulk assign
+  const toggleEmployeeForBulk = (name: string) => {
+    setSelectedAssigneesForBulk(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  // Toggle selection for bulk assign
+  const toggleSubtaskForBulkAssign = (id: string) => {
+    setSelectedSubtaskIdsForAssign(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Select all subtasks for bulk assign
+  const selectAllForBulkAssign = () => {
+    setSelectedSubtaskIdsForAssign(prev => {
+      if (prev.size === subTasks.length) return new Set();
+      return new Set(subTasks.map(st => st.id));
+    });
   };
 
   // --- Dynamic Checklist Handlers ---
@@ -690,7 +716,6 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
       assignTo: selectedAssignees.length > 0 ? selectedAssignees[0] : 'Krishna Lokhande',
       assignees: selectedAssignees,
       status: isDraftFlag ? 'Pending' : status,
-      client: selectedClient,
       service: selectedService,
       follower: selectedFollower,
       documents: uploadedDocuments,
@@ -705,7 +730,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
         ? {
             repeatType,
             repeatEvery,
-            weekdays: repeatType === 'Weekly' ? selectedWeekdays : undefined,
+            weekdays: (repeatType === 'Weekly' || repeatType === 'Custom') ? selectedWeekdays : undefined,
             repeatOn: repeatType === 'Monthly' ? repeatOn : undefined,
             customRule: repeatType === 'Custom' ? customRule : undefined,
             customDates: repeatType === 'Custom' ? customDates : undefined,
@@ -1119,205 +1144,103 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
               </div>
             </div>
 
-            {/* Client & Service options */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Client Selection with Add/Delete inline */}
-              <div className="space-y-1.5 relative" ref={clientRef}>
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                    <Briefcase className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Client Worksite</span>
-                  </label>
-                  {!showAddClientInput && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAddClientInput(true)}
-                      className="text-[9px] text-cyan-400 hover:underline font-bold"
-                    >
-                      + Add Client
-                    </button>
-                  )}
-                </div>
-
-                {showAddClientInput ? (
-                  <form onSubmit={handleCreateClient} className="flex gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="Type client name..."
-                      value={newClientName}
-                      onChange={(e) => setNewClientName(e.target.value)}
-                      className={`text-xs px-3 py-2 rounded-xl border outline-none w-full ${
-                        theme === 'dark'
-                          ? 'bg-slate-900 border-slate-700 text-slate-200'
-                          : 'bg-slate-50 border-slate-200 text-slate-700'
-                      }`}
-                    />
-                    <button
-                      type="submit"
-                      className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-[10px] px-3 py-2 rounded-xl"
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddClientInput(false)}
-                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] px-2 py-2 rounded-xl"
-                    >
-                      x
-                    </button>
-                  </form>
-                ) : (
-                  <>
-                    <div
-                      onClick={() => setIsClientDropdownOpen(!isClientDropdownOpen)}
-                      className={`w-full min-h-[38px] text-xs px-3 py-2 rounded-xl border flex items-center justify-between cursor-pointer transition focus:ring-2 focus:ring-cyan-400 ${
-                        theme === 'dark'
-                          ? 'bg-[#0D1631] border-slate-700 text-slate-200'
-                          : 'bg-slate-50 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <span>{selectedClient || "Select client..."}</span>
-                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                    </div>
-
-                    {isClientDropdownOpen && (
-                      <div
-                        className={`absolute z-40 left-0 right-0 mt-1 rounded-xl shadow-2xl border p-3 flex flex-col gap-2 max-h-48 overflow-y-auto ${
-                          theme === 'dark'
-                            ? 'bg-[#141C38] border-slate-800 text-slate-100'
-                            : 'bg-white border-slate-200 text-slate-800'
-                        }`}
-                      >
-                        {clientsList.map((cl) => (
-                          <div key={cl} className="flex items-center justify-between gap-2 group">
-                            <div
-                              onClick={() => {
-                                setSelectedClient(cl);
-                                addActivity(`Client changed to: ${cl}`);
-                                setIsClientDropdownOpen(false);
-                              }}
-                              className={`flex-1 text-xs px-2 py-1 rounded-lg cursor-pointer hover:bg-slate-800/30 ${
-                                selectedClient === cl ? 'text-cyan-400 font-medium' : ''
-                              }`}
-                            >
-                              {cl}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteClient(cl);
-                              }}
-                              className="p-1 rounded-lg text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
+            {/* Service Selection with Add/Delete inline */}
+            <div className="space-y-1.5 relative" ref={serviceRef}>
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <Users className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Associated Service</span>
+                </label>
+                {!showAddServiceInput && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddServiceInput(true)}
+                    className="text-[9px] text-cyan-400 hover:underline font-bold"
+                  >
+                    + Add Service
+                  </button>
                 )}
               </div>
 
-              {/* Service Selection with Add/Delete inline */}
-              <div className="space-y-1.5 relative" ref={serviceRef}>
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                    <Users className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Associated Service</span>
-                  </label>
-                  {!showAddServiceInput && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAddServiceInput(true)}
-                      className="text-[9px] text-cyan-400 hover:underline font-bold"
-                    >
-                      + Add Service
-                    </button>
-                  )}
-                </div>
+              {showAddServiceInput ? (
+                <form onSubmit={handleCreateService} className="flex gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="Service title..."
+                    value={newServiceName}
+                    onChange={(e) => setNewServiceName(e.target.value)}
+                    className={`text-xs px-3 py-2 rounded-xl border outline-none w-full ${
+                      theme === 'dark'
+                        ? 'bg-slate-900 border-slate-700 text-slate-200'
+                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}
+                  />
+                  <button
+                    type="submit"
+                    className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-[10px] px-3 py-2 rounded-xl"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddServiceInput(false)}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] px-2 py-2 rounded-xl"
+                  >
+                    x
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <div
+                    onClick={() => setIsServiceDropdownOpen(!isServiceDropdownOpen)}
+                    className={`w-full min-h-[38px] text-xs px-3 py-2 rounded-xl border flex items-center justify-between cursor-pointer transition focus:ring-2 focus:ring-cyan-400 ${
+                      theme === 'dark'
+                        ? 'bg-[#0D1631] border-slate-700 text-slate-200'
+                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <span>{selectedService || "Select service..."}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </div>
 
-                {showAddServiceInput ? (
-                  <form onSubmit={handleCreateService} className="flex gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="Service title..."
-                      value={newServiceName}
-                      onChange={(e) => setNewServiceName(e.target.value)}
-                      className={`text-xs px-3 py-2 rounded-xl border outline-none w-full ${
-                        theme === 'dark'
-                          ? 'bg-slate-900 border-slate-700 text-slate-200'
-                          : 'bg-slate-50 border-slate-200 text-slate-700'
-                      }`}
-                    />
-                    <button
-                      type="submit"
-                      className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-[10px] px-3 py-2 rounded-xl"
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddServiceInput(false)}
-                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] px-2 py-2 rounded-xl"
-                    >
-                      x
-                    </button>
-                  </form>
-                ) : (
-                  <>
+                  {isServiceDropdownOpen && (
                     <div
-                      onClick={() => setIsServiceDropdownOpen(!isServiceDropdownOpen)}
-                      className={`w-full min-h-[38px] text-xs px-3 py-2 rounded-xl border flex items-center justify-between cursor-pointer transition focus:ring-2 focus:ring-cyan-400 ${
+                      className={`absolute z-40 left-0 right-0 mt-1 rounded-xl shadow-2xl border p-3 flex flex-col gap-2 max-h-48 overflow-y-auto ${
                         theme === 'dark'
-                          ? 'bg-[#0D1631] border-slate-700 text-slate-200'
-                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                          ? 'bg-[#141C38] border-slate-800 text-slate-100'
+                          : 'bg-white border-slate-200 text-slate-800'
                       }`}
                     >
-                      <span>{selectedService || "Select service..."}</span>
-                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                    </div>
-
-                    {isServiceDropdownOpen && (
-                      <div
-                        className={`absolute z-40 left-0 right-0 mt-1 rounded-xl shadow-2xl border p-3 flex flex-col gap-2 max-h-48 overflow-y-auto ${
-                          theme === 'dark'
-                            ? 'bg-[#141C38] border-slate-800 text-slate-100'
-                            : 'bg-white border-slate-200 text-slate-800'
-                        }`}
-                      >
-                        {servicesList.map((sv) => (
-                          <div key={sv} className="flex items-center justify-between gap-2 group">
-                            <div
-                              onClick={() => {
-                                setSelectedService(sv);
-                                addActivity(`Associated service updated: ${sv}`);
-                                setIsServiceDropdownOpen(false);
-                              }}
-                              className={`flex-1 text-xs px-2 py-1 rounded-lg cursor-pointer hover:bg-slate-800/30 ${
-                                selectedService === sv ? 'text-cyan-400 font-medium' : ''
-                              }`}
-                            >
-                              {sv}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteService(sv);
-                              }}
-                              className="p-1 rounded-lg text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
+                      {servicesList.map((sv) => (
+                        <div key={sv} className="flex items-center justify-between gap-2 group">
+                          <div
+                            onClick={() => {
+                              setSelectedService(sv);
+                              addActivity(`Associated service updated: ${sv}`);
+                              setIsServiceDropdownOpen(false);
+                            }}
+                            className={`flex-1 text-xs px-2 py-1 rounded-lg cursor-pointer hover:bg-slate-800/30 ${
+                              selectedService === sv ? 'text-cyan-400 font-medium' : ''
+                            }`}
+                          >
+                            {sv}
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteService(sv);
+                            }}
+                            className="p-1 rounded-lg text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Priority, Status, Start Date, Due Date, Followers */}
@@ -1585,12 +1508,12 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                     )}
                   </div>
 
-                  {/* Weekly details */}
-                  {repeatType === 'Weekly' && (
+                  {/* Weekly & Custom details — select weekdays */}
+                  {(repeatType === 'Weekly' || repeatType === 'Custom') && (
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Select weekdays</label>
                       <div className="flex flex-wrap gap-1">
-                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => {
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => {
                           const isSelected = selectedWeekdays.includes(day);
                           return (
                             <button
@@ -1800,26 +1723,153 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                 )}
               </div>
 
+              {/* Bulk assign toolbar */}
+              <div className="relative" ref={bulkAssignRef}>
+                <div className={`flex items-center gap-1.5 flex-wrap px-2 py-1.5 rounded-lg border ${
+                  theme === 'dark' ? 'bg-cyan-500/5 border-cyan-500/20' : 'bg-cyan-50 border-cyan-200'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={selectAllForBulkAssign}
+                    className={`text-[9px] font-bold px-2 py-0.5 rounded border transition cursor-pointer ${
+                      selectedSubtaskIdsForAssign.size === subTasks.length
+                        ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                        : theme === 'dark' ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-white text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {selectedSubtaskIdsForAssign.size === subTasks.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                  <span className="text-[9px] text-slate-500 font-mono">{selectedSubtaskIdsForAssign.size} subtasks</span>
+                  <div className="w-px h-4 bg-slate-700/30 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkAssignDropdownOpen(!isBulkAssignDropdownOpen)}
+                    className={`text-[9px] font-bold px-2 py-0.5 rounded border transition cursor-pointer ${
+                      selectedAssigneesForBulk.size > 0
+                        ? 'bg-pink-500/20 text-pink-400 border-pink-500/30'
+                        : theme === 'dark' ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-white text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    👥 {selectedAssigneesForBulk.size > 0 ? `${selectedAssigneesForBulk.size} selected` : 'Assign to...'}
+                  </button>
+                  {selectedSubtaskIdsForAssign.size > 0 && selectedAssigneesForBulk.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleBulkAssignSubTasks}
+                      className={`text-[9px] font-bold px-2 py-0.5 rounded border transition cursor-pointer ${
+                        theme === 'dark'
+                          ? 'bg-pink-500/20 text-pink-400 border-pink-500/30 hover:bg-pink-500/30'
+                          : 'bg-pink-100 text-pink-700 border-pink-200 hover:bg-pink-200'
+                      }`}
+                    >
+                      Assign to {Array.from(selectedAssigneesForBulk).length} employee(s)
+                    </button>
+                  )}
+                </div>
+                {/* Employee multi-select dropdown */}
+                {isBulkAssignDropdownOpen && (
+                  <div className={`absolute z-30 left-0 mt-1 rounded-xl shadow-2xl border p-2 flex flex-col gap-1 min-w-[200px] ${
+                    theme === 'dark' ? 'bg-[#141C38] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                  }`}>
+                    <div className="flex items-center justify-between px-1 pb-1 border-b border-slate-800/10 mb-1">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Select Employees</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedAssigneesForBulk.size === users.length) {
+                            setSelectedAssigneesForBulk(new Set());
+                          } else {
+                            setSelectedAssigneesForBulk(new Set(users.map(u => u.name)));
+                          }
+                        }}
+                        className="text-[9px] text-cyan-400 font-bold hover:underline"
+                      >
+                        {selectedAssigneesForBulk.size === users.length ? 'Clear' : 'All'}
+                      </button>
+                    </div>
+                    {users.map(u => (
+                      <label
+                        key={u.name}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] cursor-pointer hover:bg-slate-800/30 ${
+                          selectedAssigneesForBulk.has(u.name) ? 'text-pink-400 font-bold' : 'text-slate-300'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedAssigneesForBulk.has(u.name)}
+                          onChange={() => toggleEmployeeForBulk(u.name)}
+                          className="accent-pink-500 w-3 h-3"
+                        />
+                        <span>{u.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Add subtask input */}
-              <form onSubmit={handleAddSubTask} className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Enter custom sub task detail..."
-                  value={newSubTaskName}
-                  onChange={(e) => setNewSubTaskName(e.target.value)}
-                  className={`text-[11px] px-3 py-1.5 rounded-lg border outline-none w-full ${
-                    theme === 'dark'
-                      ? 'bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-400'
-                      : 'bg-slate-50 border-slate-200 text-slate-700'
-                  }`}
-                />
-                <button
-                  type="submit"
-                  className="bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 text-cyan-400 font-bold text-xs px-3 py-1 rounded-lg flex items-center gap-1"
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>Add</span>
-                </button>
+              <form onSubmit={handleAddSubTask} className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Enter custom sub task detail..."
+                    value={newSubTaskName}
+                    onChange={(e) => setNewSubTaskName(e.target.value)}
+                    className={`text-[11px] px-3 py-1.5 rounded-lg border outline-none flex-1 ${
+                      theme === 'dark'
+                        ? 'bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-400'
+                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}
+                  />
+                  <button
+                    type="submit"
+                    className="bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 text-cyan-400 font-bold text-xs px-3 py-1 rounded-lg flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add</span>
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1 flex items-center gap-1">
+                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</label>
+                    <input
+                      type="date"
+                      value={newSubTaskDate}
+                      onChange={(e) => setNewSubTaskDate(e.target.value)}
+                      className={`text-[10px] px-2 py-1 rounded-lg border outline-none flex-1 ${
+                        theme === 'dark'
+                          ? 'bg-slate-900 border-slate-700 text-slate-200'
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                    />
+                  </div>
+                  <div className="flex-1 flex items-center gap-1">
+                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Start</label>
+                    <input
+                      type="date"
+                      value={newSubTaskStartDate}
+                      onChange={(e) => setNewSubTaskStartDate(e.target.value)}
+                      className={`text-[10px] px-2 py-1 rounded-lg border outline-none flex-1 ${
+                        theme === 'dark'
+                          ? 'bg-slate-900 border-slate-700 text-slate-200'
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                    />
+                  </div>
+                  <div className="flex-1 flex items-center gap-1">
+                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">End</label>
+                    <input
+                      type="date"
+                      value={newSubTaskEndDate}
+                      onChange={(e) => setNewSubTaskEndDate(e.target.value)}
+                      className={`text-[10px] px-2 py-1 rounded-lg border outline-none flex-1 ${
+                        theme === 'dark'
+                          ? 'bg-slate-900 border-slate-700 text-slate-200'
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                    />
+                  </div>
+                </div>
               </form>
 
               {/* Subtasks list */}
@@ -1829,15 +1879,42 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                     <div key={sub.id} className="rounded-lg border border-slate-800/10 overflow-hidden bg-slate-900/30">
                       <div className="flex items-center justify-between px-2 py-1.5">
                         <div className="flex items-center gap-2 flex-1">
+                          {/* Bulk assign selection checkbox */}
+                          <input
+                            type="checkbox"
+                            checked={selectedSubtaskIdsForAssign.has(sub.id)}
+                            onChange={() => toggleSubtaskForBulkAssign(sub.id)}
+                            className="accent-pink-500 flex-shrink-0"
+                            title="Select for bulk assign"
+                          />
                           <input
                             type="checkbox"
                             checked={sub.completed}
                             onChange={() => handleToggleSubTask(sub.id)}
                             className="accent-cyan-500 flex-shrink-0"
                           />
-                          <span className={`text-[11px] truncate flex-1 ${sub.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
-                            {sub.name}
-                          </span>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className={`text-[11px] truncate ${sub.completed ? 'line-through text-slate-500' : 'text-slate-300'}`}>
+                              {sub.name}
+                            </span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {sub.startDate && (
+                                <span className="text-[8px] font-bold text-slate-500 bg-slate-800/50 px-1.5 py-0.5 rounded border border-slate-700/30 whitespace-nowrap">
+                                  Start: {sub.startDate}
+                                </span>
+                              )}
+                              {sub.endDate && (
+                                <span className="text-[8px] font-bold text-slate-500 bg-slate-800/50 px-1.5 py-0.5 rounded border border-slate-700/30 whitespace-nowrap">
+                                  End: {sub.endDate}
+                                </span>
+                              )}
+                              {sub.date && !sub.startDate && !sub.endDate && (
+                                <span className="text-[8px] font-bold text-slate-500 bg-slate-800/50 px-1.5 py-0.5 rounded border border-slate-700/30 whitespace-nowrap">
+                                  {sub.date}
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -2033,9 +2110,9 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                     <div className="flex items-center gap-1.5 truncate">
                       <FileText className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
                       <span
-                        onClick={() => doc.startsWith('http') && window.open(doc, '_blank')}
-                        className={`truncate font-medium ${doc.startsWith('http') ? 'text-cyan-400 cursor-pointer hover:underline' : 'text-slate-300'}`}
-                        title={doc.startsWith('http') ? 'Click to open' : doc}
+                        onClick={() => openDocument(doc)}
+                        className="truncate font-medium text-cyan-400 cursor-pointer hover:underline"
+                        title="Click to open"
                       >
                         {doc.startsWith('http') ? doc.split('/').pop() : doc}
                       </span>
@@ -2131,10 +2208,15 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                       </div>
                     ) : (
                       uploadedDocuments.map((doc) => (
-                        <div key={doc} className="flex items-center justify-between bg-slate-900/30 p-2.5 rounded-xl border border-slate-800/10 text-[11px]">
+                        <div 
+                          key={doc} 
+                          className="flex items-center justify-between bg-slate-900/30 p-2.5 rounded-xl border border-slate-800/10 text-[11px] cursor-pointer hover:bg-slate-800/40 transition"
+                          onClick={() => openDocument(doc)}
+                          title="Click to open"
+                        >
                           <div className="flex items-center gap-2 truncate">
                             <FileText className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                            <span className="truncate font-semibold text-slate-300">{doc}</span>
+                            <span className="truncate font-semibold text-cyan-300 hover:underline">{doc}</span>
                           </div>
                           <span className="text-[9px] text-slate-500 bg-slate-900/50 px-2 py-0.5 rounded-md font-mono">
                             Ready

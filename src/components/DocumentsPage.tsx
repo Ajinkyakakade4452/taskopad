@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { FileText, Folder, Plus, Search, Calendar, ExternalLink, Trash2, MoreHorizontal } from 'lucide-react';
+import { openDocument } from '../utils/documentViewer';
 
 interface DocumentsPageProps {
   theme: 'dark' | 'light';
@@ -252,7 +253,14 @@ export default function DocumentsPage({ theme, tasks }: DocumentsPageProps) {
               </div>
 
               <div className="mt-4 pt-3 border-t border-slate-800/10 flex items-center gap-2">
-                <button className="flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 transition flex items-center justify-center gap-1.5">
+                <button 
+                  onClick={() => {
+                    if (doc.kind === 'file' && doc.docValue) {
+                      openDocument(doc.docValue, doc.name);
+                    }
+                  }}
+                  className="flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
                   <ExternalLink className="w-3 h-3" />
                   Open
                 </button>

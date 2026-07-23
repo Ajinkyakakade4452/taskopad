@@ -434,13 +434,13 @@ export function PriorityTaskSummary({ theme, tasks }: PriorityChartProps) {
               strokeWidth="9"
             />
 
-            {/* Critical Segment (Violet) */}
+            {/* Critical Segment (Dark Red) */}
             <circle
               cx="50"
               cy="50"
               r={radius}
               fill="transparent"
-              stroke="#8b5cf6"
+              stroke="#991b1b"
               strokeWidth="11"
               strokeDasharray={`${strokeDashCritical} ${circumference}`}
               strokeDashoffset={-offsetCritical}
@@ -448,13 +448,13 @@ export function PriorityTaskSummary({ theme, tasks }: PriorityChartProps) {
               className="transition-all duration-500 ease-out"
             />
 
-            {/* High Segment (Red) */}
+            {/* High Segment (Light Red) */}
             <circle
               cx="50"
               cy="50"
               r={radius}
               fill="transparent"
-              stroke="#ef4444"
+              stroke="#f87171"
               strokeWidth="11"
               strokeDasharray={`${strokeDashHigh} ${circumference}`}
               strokeDashoffset={-offsetHigh}
@@ -500,22 +500,22 @@ export function PriorityTaskSummary({ theme, tasks }: PriorityChartProps) {
 
         {/* Legend */}
         <div className="flex flex-row md:flex-col flex-wrap justify-center gap-4 md:gap-3 text-xs w-full">
-          {/* Critical */}
-          <div className="flex items-center justify-between gap-3 bg-violet-500/5 hover:bg-violet-500/10 transition px-3 py-2 rounded-xl border border-violet-500/10 min-w-[85px] md:w-full">
+          {/* Critical - Dark Red */}
+          <div className="flex items-center justify-between gap-3 bg-red-950/20 hover:bg-red-950/40 transition px-3 py-2 rounded-xl border border-red-900/40 min-w-[85px] md:w-full">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-violet-500"></span>
-              <span className="text-slate-400 font-medium">Critical</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-[#991b1b]"></span>
+              <span className="text-slate-300 font-bold">Critical</span>
             </div>
-            <span className="font-bold font-mono text-violet-500">{criticalCount}</span>
+            <span className="font-extrabold font-mono text-[#dc2626] dark:text-[#f87171]">{criticalCount}</span>
           </div>
 
-          {/* High */}
-          <div className="flex items-center justify-between gap-3 bg-red-500/5 hover:bg-red-500/10 transition px-3 py-2 rounded-xl border border-red-500/10 min-w-[85px] md:w-full">
+          {/* High - Light Red */}
+          <div className="flex items-center justify-between gap-3 bg-red-500/10 hover:bg-red-500/15 transition px-3 py-2 rounded-xl border border-red-500/20 min-w-[85px] md:w-full">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-              <span className="text-slate-400 font-medium">High</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-[#f87171]"></span>
+              <span className="text-slate-300 font-medium">High</span>
             </div>
-            <span className="font-bold font-mono text-red-500">{highCount}</span>
+            <span className="font-bold font-mono text-[#f87171]">{highCount}</span>
           </div>
 
           {/* Medium */}
@@ -540,8 +540,8 @@ export function PriorityTaskSummary({ theme, tasks }: PriorityChartProps) {
 
       <div className={`text-[11px] text-center p-2 rounded-lg ${theme === 'dark' ? 'bg-[#0D1631]/50 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
         {criticalCount > 0
-          ? <><span className="text-violet-400 font-semibold">{criticalCount}</span> task(s) flagged as <span className="text-violet-400 font-semibold">Critical</span> — Immediate attention required.</>
-          : <>Majority of active assignments are flagged as <span className="text-red-400 font-semibold">High Priority</span>.</>
+          ? <><span className="text-red-500 font-bold">{criticalCount}</span> task(s) flagged as <span className="text-red-500 font-bold">Critical</span> (Dark Red) — Immediate attention required.</>
+          : <>Majority of active assignments are flagged as <span className="text-red-400 font-semibold">High Priority</span> (Light Red).</>
         }
       </div>
     </div>

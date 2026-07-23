@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-
 import { User, Bell, Palette, Shield, Database, HelpCircle, Save, CheckCircle2 } from 'lucide-react';
+import { getStoredPenaltyConfig, setStoredPenaltyConfig } from '../utils/penaltyUtils';
 
 interface LoggedInUser {
   id: string;
@@ -89,6 +89,12 @@ export default function SettingsPage({ theme, user, onThemeToggle, onUserUpdated
   const [documentsMandatory, setDocumentsMandatory] = useState<boolean>(false);
   const [docsMandatoryLoading, setDocsMandatoryLoading] = useState<boolean>(false);
 
+  // Admin-only: penalty system settings
+  const [penaltyEnabled, setPenaltyEnabled] = useState<boolean>(true);
+  const [penaltyAmount, setPenaltyAmount] = useState<number>(200);
+  const [penaltyAmountInput, setPenaltyAmountInput] = useState<string>('200');
+  const [penaltySaving, setPenaltySaving] = useState<boolean>(false);
+  const [penaltySaved, setPenaltySaved] = useState<boolean>(false);
 
   useEffect(() => {
     // Only admins should see this; backend endpoint is lightweight.
@@ -108,6 +114,25 @@ export default function SettingsPage({ theme, user, onThemeToggle, onUserUpdated
         // ignore
       }
     })();
+
+    // Load penalty settings (from localStorage first, then try API)
+    const stored = getStoredPenaltyConfig();
+    setPenaltyEnabled(stored.enabled);
+    setPenaltyAmount(stored.amount);
+    setPenaltyAmountInput(String(stored.amount));
+
+    // Try to sync from backend too
+    fetch('/api/tasks/admin/penalty-settings')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setPenaltyEnabled(typeof data.enabled === 'boolean' ? data.enabled : stored.enabled);
+          const amt = typeof data.amount === 'number' ? data.amount : stored.amount;
+          setPenaltyAmount(amt);
+          setPenaltyAmountInput(String(amt));
+        }
+      })
+      .catch(() => {});
   }, []);
 
 
@@ -324,6 +349,95 @@ export default function SettingsPage({ theme, user, onThemeToggle, onUserUpdated
                             <p className="text-[10px] text-slate-400">{docsMandatoryLoading ? 'Saving...' : (documentsMandatory ? 'ON' : 'OFF')}</p>
                           </div>
                         </div>
+                      </div>
+
+                      {/* Penalty System Settings */}
+                      <div className={`p-4 rounded-xl border ${theme === 'dark' ? 'bg-[#0D1631] border-red-900/30' : 'bg-red-50 border-red-200'}`}>
+                        <div className="flex items-start justify-between gap-4 mb-4">
+                          <div>
+                            <p className="text-sm font-bold text-red-400 flex items-center gap-2">
+                              <span>⚠️</span> Penalty System
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">
+                              Automatically apply a penalty (₹) when a user completes a task after its due date.
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-end gap-2">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const next = !penaltyEnabled;
+                                setPenaltyEnabled(next);
+                                await setStoredPenaltyConfig({ enabled: next, amount: penaltyAmount });
+                              }}
+                              className={`w-14 h-7 rounded-full transition flex items-center px-1 ${
+                                penaltyEnabled ? 'bg-red-600' : 'bg-slate-700'
+                              }`}
+                            >
+                              <div
+                                className={`w-6 h-6 rounded-full bg-white shadow-md transition-transform ${
+                                  penaltyEnabled ? 'translate-x-7' : 'translate-x-0.5'
+                                }`}
+                              />
+                            </button>
+                            <p className="text-[10px] text-slate-400">{penaltyEnabled ? 'ENABLED' : 'DISABLED'}</p>
+                          </div>
+                        </div>
+
+                        {penaltyEnabled && (
+                          <div className="space-y-3">
+                            <div className={`p-3 rounded-lg border ${theme === 'dark' ? 'bg-slate-800/40 border-slate-700/50' : 'bg-white border-slate-200'}`}>
+                              <label className="text-xs text-slate-400 block mb-2 font-semibold uppercase tracking-wider">
+                                Default Penalty Amount (₹)
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg font-bold text-red-400">₹</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="50"
+                                  value={penaltyAmountInput}
+                                  onChange={(e) => {
+                                    setPenaltyAmountInput(e.target.value);
+                                    const val = parseFloat(e.target.value);
+                                    if (!isNaN(val) && val >= 0) setPenaltyAmount(val);
+                                  }}
+                                  className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold border outline-none focus:ring-2 focus:ring-red-500 ${
+                                    theme === 'dark' ? 'bg-[#0D1631] border-slate-700 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-700'
+                                  }`}
+                                  placeholder="200"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={penaltySaving}
+                                  onClick={async () => {
+                                    const val = parseFloat(penaltyAmountInput);
+                                    const finalAmount = (!isNaN(val) && val >= 0) ? val : 200;
+                                    setPenaltySaving(true);
+                                    try {
+                                      await setStoredPenaltyConfig({ enabled: penaltyEnabled, amount: finalAmount });
+                                      setPenaltyAmount(finalAmount);
+                                      setPenaltySaved(true);
+                                      setTimeout(() => setPenaltySaved(false), 2000);
+                                    } finally {
+                                      setPenaltySaving(false);
+                                    }
+                                  }}
+                                  className={`px-3 py-2 rounded-lg text-xs font-bold transition ${
+                                    penaltySaved
+                                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                      : 'bg-red-600/20 text-red-400 border border-red-500/30 hover:bg-red-600/30'
+                                  } disabled:opacity-50`}
+                                >
+                                  {penaltySaving ? 'Saving...' : penaltySaved ? '✓ Saved' : 'Save'}
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-slate-500 mt-2">
+                                Current penalty: <span className="text-red-400 font-bold">₹{penaltyAmount}</span> — applied when task is completed after due date.
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

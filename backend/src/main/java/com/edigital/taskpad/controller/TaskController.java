@@ -191,6 +191,38 @@ public class TaskController {
         return ResponseEntity.ok(Map.of("mandatory", documentsMandatory));
     }
 
+    // Penalty system config (admin-configurable)
+    private static volatile boolean penaltyEnabled = true;
+    private static volatile double defaultPenaltyAmount = 200.0;
+
+    @GetMapping("/admin/penalty-settings")
+    public ResponseEntity<Map<String, Object>> getPenaltySettings() {
+        return ResponseEntity.ok(Map.of(
+            "enabled", penaltyEnabled,
+            "amount", defaultPenaltyAmount
+        ));
+    }
+
+    @PutMapping("/admin/penalty-settings")
+    public ResponseEntity<?> setPenaltySettings(@RequestBody Map<String, Object> payload) {
+        if (payload != null) {
+            if (payload.containsKey("enabled")) {
+                Object en = payload.get("enabled");
+                penaltyEnabled = en instanceof Boolean ? (Boolean) en : Boolean.parseBoolean(String.valueOf(en));
+            }
+            if (payload.containsKey("amount")) {
+                Object amt = payload.get("amount");
+                try {
+                    defaultPenaltyAmount = Double.parseDouble(String.valueOf(amt));
+                } catch (Exception ignored) {}
+            }
+        }
+        return ResponseEntity.ok(Map.of(
+            "enabled", penaltyEnabled,
+            "amount", defaultPenaltyAmount
+        ));
+    }
+
 
     @PutMapping("/{id}")
     public ResponseEntity<Task> updateTask(@PathVariable String id, @RequestBody Task taskDetails) {
@@ -221,6 +253,7 @@ public class TaskController {
 
             // Persist subtasks first, then recompute status from workflow rules
             task.setDocuments(taskDetails.getDocuments());
+            task.setUserDocuments(taskDetails.getUserDocuments());
             task.setSubTasks(taskDetails.getSubTasks());
             // keep status consistent with workflow rule
 
@@ -234,7 +267,6 @@ public class TaskController {
             task.setEndTime(taskDetails.getEndTime());
             task.setReminderBefore(taskDetails.getReminderBefore());
 
-            task.setClient(taskDetails.getClient());
             task.setService(taskDetails.getService());
             task.setFollower(taskDetails.getFollower());
 
@@ -696,7 +728,6 @@ public class TaskController {
         // Override status
         duplicated.setStatus("Pending");
 
-        duplicated.setClient(src.getClient());
         duplicated.setService(src.getService());
         duplicated.setFollower(src.getFollower());
         duplicated.setDocuments(src.getDocuments());
@@ -713,6 +744,8 @@ public class TaskController {
                         : st.getId() + "-dup-" + System.currentTimeMillis() + "-" + i);
                 next.setName(st.getName());
                 next.setCompleted(st.isCompleted());
+                next.setStartDate(st.getStartDate());
+                next.setEndDate(st.getEndDate());
 
                 // Copy existing subtask comments (so admins/users can still see history)
                 next.setComments(st.getComments() != null ? new ArrayList<>(st.getComments()) : null);
