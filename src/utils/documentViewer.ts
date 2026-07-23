@@ -1,6 +1,19 @@
 /**
  * Utility for opening and previewing task attachment documents reliably.
  */
+
+/** Helper to open a URL in a new tab reliably (avoids popup blockers) */
+const openInNewTab = (url: string, fileName?: string) => {
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  if (fileName) link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
 export const openDocument = (docUrl: string, fileName?: string) => {
   if (!docUrl) {
     alert('No document URL or path available to open.');
@@ -10,46 +23,45 @@ export const openDocument = (docUrl: string, fileName?: string) => {
   const cleanUrl = docUrl.trim();
   const titleName = fileName || cleanUrl.split('/').pop() || 'document';
 
-  // Normalize legacy hardcoded localhost:8081 URLs to current origin
+  // Normalize legacy hardcoded localhost URLs to relative path
   let targetUrl = cleanUrl;
-  if (targetUrl.includes('localhost:8081')) {
-    targetUrl = targetUrl.replace(/^https?:\/\/localhost:8081/, '');
+  if (/https?:\/\/localhost:\d+/.test(targetUrl)) {
+    targetUrl = targetUrl.replace(/^https?:\/\/localhost:\d+/, '');
   }
+  // Ensure relative uploads/ paths start with /
   if (targetUrl.startsWith('uploads/')) {
     targetUrl = '/' + targetUrl;
   }
 
-  // 1. Data URLs, Blob URLs, and Full HTTP/HTTPS URLs
-  if (targetUrl.startsWith('data:') || targetUrl.startsWith('blob:') || targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
-    try {
-      const win = window.open(targetUrl, '_blank');
-      if (!win) {
-        // If pop-up is blocked by browser, fallback to anchor tag click
-        const link = document.createElement('a');
-        link.href = targetUrl;
-        link.target = '_blank';
-        link.download = titleName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
-    } catch {
-      // Fallback anchor tag download
-      const link = document.createElement('a');
-      link.href = targetUrl;
-      link.target = '_blank';
-      link.download = titleName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
+  // 1. Data URLs (base64) — open directly
+  if (targetUrl.startsWith('data:')) {
+    openInNewTab(targetUrl, titleName);
     return;
   }
 
-  // 2. Relative URLs starting with '/'
+  // 2. Blob URLs — open directly
+  if (targetUrl.startsWith('blob:')) {
+    openInNewTab(targetUrl);
+    return;
+  }
+
+  // 3. Relative /uploads/ paths — build absolute URL from current origin
+  if (targetUrl.startsWith('/uploads/')) {
+    const fullUrl = window.location.origin + targetUrl;
+    openInNewTab(fullUrl);
+    return;
+  }
+
+  // 4. Full HTTP/HTTPS URLs — open directly
+  if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+    openInNewTab(targetUrl);
+    return;
+  }
+
+  // 5. Any other relative path starting with '/'
   if (targetUrl.startsWith('/')) {
     const fullUrl = window.location.origin + targetUrl;
-    window.open(fullUrl, '_blank');
+    openInNewTab(fullUrl);
     return;
   }
 
