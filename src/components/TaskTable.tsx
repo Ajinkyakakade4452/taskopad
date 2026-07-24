@@ -694,19 +694,20 @@ export default function TaskTable({
 
                   {/* Project Column */}
                   <td className="px-5 py-4">
-                    <div className="flex flex-wrap gap-1 max-w-[180px]">
+                    <div className="flex flex-wrap gap-1 max-w-full">
                       {task.projects && task.projects.length > 0 ? (
                         <>
                           {task.projects.slice(0, 2).map((proj) => (
                             <span
                               key={proj}
+                              title={proj}
                               className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
                                 theme === 'dark'
                                   ? 'bg-cyan-950/30 text-cyan-400 border-cyan-800/30'
                                   : 'bg-cyan-50 text-cyan-700 border-cyan-150'
                               }`}
                             >
-                              {proj}
+                              {proj.length > 20 ? proj.substring(0, 20) + '...' : proj}
                             </span>
                           ))}
                           {task.projects.length > 2 && (
@@ -723,13 +724,14 @@ export default function TaskTable({
                         </>
                       ) : (
                         <span
+                          title={task.project || 'No Project'}
                           className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
                             theme === 'dark'
                               ? 'bg-slate-800/30 text-slate-400 border-slate-700/30'
                               : 'bg-slate-50 text-slate-600 border-slate-150'
                           }`}
                         >
-                          {task.project || 'No Project'}
+                          {task.project && task.project.length > 25 ? task.project.substring(0, 25) + '...' : (task.project || 'No Project')}
                         </span>
                       )}
                     </div>

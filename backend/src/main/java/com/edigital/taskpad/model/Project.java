@@ -25,6 +25,9 @@ public class Project {
     @Transient
     private int totalTasks;
 
+    @Transient
+    private int memberCount;
+
     private String color;
 
     public Project() {}
@@ -60,6 +63,9 @@ public class Project {
 
     public int getTotalTasks() { return totalTasks; }
     public void setTotalTasks(int totalTasks) { this.totalTasks = totalTasks; }
+
+    public int getMemberCount() { return memberCount; }
+    public void setMemberCount(int memberCount) { this.memberCount = memberCount; }
 
     public String getColor() { return color; }
     public void setColor(String color) { this.color = color; }

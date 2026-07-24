@@ -163,6 +163,8 @@ function formatDate(dateStr: string): string {
 
 export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
+  // Track all tasks from API (including completed) for accurate counts
+  const [allFetchedTasks, setAllFetchedTasks] = useState<Task[]>([]);
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const addNotification = (n: Omit<Notification, 'id'>) => {
@@ -497,6 +499,8 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
       }
 
       setTasks([...directTasks, ...subtaskEntries]);
+      // Store all tasks for completed count (admin-marked completed tasks are in the original 'all' list)
+      setAllFetchedTasks(all);
     } catch {
       console.error('Failed to fetch tasks');
     } finally {
@@ -743,7 +747,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   })();
 
 
-  const completedCount = tasks.filter((t) => t.status === 'Completed').length;
+  const completedCount = allFetchedTasks.filter((t) => t.status === 'Completed').length;
   const pendingCount = tasks.filter((t) => t.status !== 'Completed').length;
 
   // Pending subtask counts
@@ -1025,7 +1029,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
           </div>
         ) : (
           <div>
-            <div className="sticky top-0 z-10 bg-[#070F23]/95 backdrop-blur border-b border-slate-800 px-6 py-2 grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            <div className="sticky top-0 z-10 bg-[#070F23]/95 backdrop-blur border-b border-slate-800 px-6 py-2 grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] gap-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
               <span>Task Name</span>
               <span>Project</span>
               <span>Due Date</span>
@@ -1048,7 +1052,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                   <div
                     key={rowKey}
                     onClick={() => setSelectedTask(task)}
-                    className={`px-6 py-3.5 grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 items-center border-b border-slate-800/40 hover:bg-slate-800/25 transition cursor-pointer group ${
+                    className={`px-6 py-3.5 grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] gap-4 items-center border-b border-slate-800/40 hover:bg-slate-800/25 transition cursor-pointer group ${
                       isSubtaskEntry ? 'border-l-2 border-l-pink-500/40' : ''
                     } ${idx % 2 === 0 ? '' : 'bg-slate-900/20'}`}
                   >
@@ -1169,9 +1173,9 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                       )}
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       {task.project ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 truncate max-w-[120px]">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 truncate max-w-full" title={task.project}>
                           {task.project}
                         </span>
                       ) : (
@@ -1759,7 +1763,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
 
         <div className="p-6 space-y-6">
           {/* Summary cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             <div className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30">
               <div className="text-[10px] font-bold uppercase text-slate-500">Main Tasks</div>
               <div className="text-3xl font-extrabold text-cyan-300 mt-2">{todayTasks.length}</div>
@@ -1780,10 +1784,15 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
               <div className="text-3xl font-extrabold text-violet-300 mt-2">{pendingApprovalSubtaskCount}</div>
               <div className="text-xs text-slate-400 mt-1">Completed subtasks awaiting admin approval</div>
             </div>
-            <div className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30">
+          <div className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30">
               <div className="text-[10px] font-bold uppercase text-slate-500">Drafts</div>
               <div className="text-3xl font-extrabold text-slate-200 mt-2">{draftTasks.length}</div>
               <div className="text-xs text-slate-400 mt-1">Not submitted yet</div>
+            </div>
+            <div className="p-4 rounded-2xl border border-slate-800/60 bg-slate-800/30">
+              <div className="text-[10px] font-bold uppercase text-slate-500">Completed Tasks</div>
+              <div className="text-3xl font-extrabold text-emerald-300 mt-2">{completedCount}</div>
+              <div className="text-xs text-slate-400 mt-1">All done ✓</div>
             </div>
           </div>
 
@@ -1811,9 +1820,10 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                             setSearchQuery(p);
                           }}
                           className="w-full text-left p-3 rounded-xl border border-slate-700/30 hover:border-cyan-500/30 hover:bg-slate-900/20 transition"
+                          title={p}
                         >
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-xs font-semibold text-slate-100 truncate">{p}</div>
+                            <div className="text-xs font-semibold text-slate-100 truncate" title={p}>{p}</div>
                             <div className="text-[10px] font-bold text-cyan-300">{done}/{prTasks.length}</div>
                           </div>
                           <div className="text-[10px] text-slate-400 mt-1">Completed {done} of {prTasks.length}</div>

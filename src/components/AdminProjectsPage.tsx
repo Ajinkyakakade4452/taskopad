@@ -259,7 +259,7 @@ export default function AdminProjectsPage() {
                     className="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-5 grid grid-cols-[1.4fr_0.8fr_0.8fr_0.7fr] gap-4 items-center hover:border-slate-700 transition"
                   >
                     {/* Project Info */}
-                    <div className="flex items-center gap-4 min-w-0">
+                  <div className="flex items-center gap-4 min-w-0">
                       <div
                         className="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white shadow-md flex-shrink-0"
                         style={{ backgroundColor: p.color }}
@@ -273,8 +273,15 @@ export default function AdminProjectsPage() {
                           .toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-base font-bold text-white truncate">{p.name}</h3>
-                        <p className="text-xs text-slate-400 truncate">Created by {p.creator}</p>
+                        <h3 className="text-base font-bold text-white" title={p.name}>{p.name}</h3>
+                        <p className="text-xs text-slate-400 truncate">
+                          Created by {p.creator}
+                          {p.memberCount !== undefined && (
+                            <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[10px] font-semibold">
+                              👥 {p.memberCount} {p.memberCount === 1 ? 'member' : 'members'}
+                            </span>
+                          )}
+                        </p>
                       </div>
                     </div>
 

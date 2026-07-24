@@ -48,6 +48,7 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
   const dueTodayCount = safeTasks.filter(t => isToday(t?.dueDate)).length;
 
   const pastDueCount = safeTasks.filter(t => isOverdue(t?.dueDate) && t?.status !== 'Completed').length;
+  const completedTaskCount = safeTasks.filter(t => t?.status === 'Completed').length;
 
   const stats = [
     {
@@ -81,6 +82,15 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
       filterValue: 'subtask-approved' as const,
     },
     {
+      title: 'Completed Tasks',
+      value: completedTaskCount,
+      icon: CheckSquare,
+      color: 'from-green-400 to-emerald-500',
+      bgOpacity: 'bg-green-500/10',
+      textAccent: 'text-green-400',
+      id: 'stat-completed',
+    },
+    {
       title: 'Due today',
       value: dueTodayCount,
       icon: CalendarDays,
@@ -103,7 +113,7 @@ export default function StatCards({ theme, tasks, user, onAddTaskClick, onFilter
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 w-full select-none">
       {/* 5 Stats Cards (8 columns on xl) */}
-      <div className="xl:col-span-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="xl:col-span-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {stats.map((stat, i) => {
           const Icon = stat.icon;
           const isActive = activeFilter === stat.filterValue;

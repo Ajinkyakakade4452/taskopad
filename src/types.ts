@@ -60,6 +60,7 @@ export interface Project {
   endDate?: string;
   completedTasks: number;
   totalTasks: number;
+  memberCount?: number; // Number of team members/users added to the project
   color: string; // CSS color or Tailwind class prefix
 }
 

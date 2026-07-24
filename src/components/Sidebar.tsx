@@ -91,7 +91,7 @@ export default function Sidebar({ theme, isOpen, onClose, activeItem = 'Dashboar
                   EK
                 </div>
                 <div className="text-left overflow-hidden">
-                  <p className="text-xs font-semibold truncate">Edigital Knowledge</p>
+                  <p className="text-xs font-semibold" title="Edigital Knowledge">Edigital Knowledge</p>
                   <p className="text-[9px] text-slate-400 font-medium">Default Workspace</p>
                 </div>
               </div>

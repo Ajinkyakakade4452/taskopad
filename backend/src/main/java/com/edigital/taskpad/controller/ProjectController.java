@@ -242,6 +242,10 @@ public class ProjectController {
 
         project.setTotalTasks(total);
         project.setCompletedTasks(completed);
+
+        // Populate member count
+        List<ProjectTeamMember> members = projectTeamMemberRepository.findByProjectId(project.getId());
+        project.setMemberCount(members.size());
     }
 
     private ResponseEntity<?> badRequest(String message) {

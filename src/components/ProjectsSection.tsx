@@ -111,7 +111,7 @@ export default function ProjectsSection({ theme, tasks, onProjectSelect, selecte
                       <FolderKanban className={`w-4.5 h-4.5 ${colors.text}`} />
                     </div>
                     <div>
-                      <h4 className="font-bold text-xs leading-normal group-hover:text-cyan-400 transition">
+                      <h4 className="font-bold text-xs leading-normal group-hover:text-cyan-400 transition" title={project.name}>
                         {project.name}
                       </h4>
                       <p className="text-[10px] text-slate-400 font-medium">Enterprise Suite</p>
