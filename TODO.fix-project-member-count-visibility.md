@@ -1,24 +1,15 @@
-# Fix: Project Member Count Not Visible to Users
+# Fix: Show projects to users when added as team members
 
-## ✅ Completed
+## Problem
+When admin adds a user to a project's team members, the project is NOT shown in the user's "Projects" section if they have no tasks assigned to that project.
 
-### Changes Made:
+## Root Cause
+`ProjectsSection.tsx` derives project list ONLY from the `tasks` array - if a user has 0 tasks in a project, that project won't appear.
 
-1. **Backend - Project.java**
-   - Added `@Transient private int memberCount;` field
-   - Added `getMemberCount()` and `setMemberCount()` getter/setter
+## Steps
 
-2. **Backend - ProjectController.java**
-   - In `enrichWithTaskCounts()`, added population of `memberCount` from `projectTeamMemberRepository.findByProjectId(project.getId()).size()`
-
-3. **Frontend - types.ts**
-   - Added `memberCount?: number` to the `Project` interface
-
-4. **Frontend - AdminProjectsPage.tsx**
-   - Added a member count badge (`👥 X members`) shown next to the creator info in each project card
-
-### How it works:
-- The backend API (`GET /api/projects`) now includes `memberCount` in each project's JSON response
-- The AdminProjectsPage displays the count with an indigo-colored badge showing the number of team members added to each project
-- Singular/plural text: "1 member" vs "X members" handled correctly
+- [x] Step 1: Create TODO.md with plan
+- [x] Step 2: Backend - Add `findByUserId` to `ProjectTeamMemberRepository.java`
+- [x] Step 3: Backend - Add `GET /api/projects/user/{userId}` endpoint in `ProjectController.java`
+- [x] Step 4: Frontend - Update `UserDashboard.tsx` to fetch and merge team-member projects
 

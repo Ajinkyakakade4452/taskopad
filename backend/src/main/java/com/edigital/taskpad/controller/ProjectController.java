@@ -172,6 +172,19 @@ public class ProjectController {
         return ResponseEntity.ok().build();
     }
 
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<List<Project>> getProjectsByUser(@PathVariable("userId") String userId) {
+        List<ProjectTeamMember> rels = projectTeamMemberRepository.findByUserId(userId);
+        List<Project> projects = new ArrayList<>();
+        for (ProjectTeamMember rel : rels) {
+            projectRepository.findById(rel.getProjectId()).ifPresent(p -> {
+                enrichWithTaskCounts(p);
+                projects.add(p);
+            });
+        }
+        return ResponseEntity.ok(projects);
+    }
+
     @GetMapping("/{id}/members")
     public ResponseEntity<List<Map<String, Object>>> getProjectMembers(@PathVariable("id") String projectId) {
         List<ProjectTeamMember> rels = projectTeamMemberRepository.findByProjectId(projectId);

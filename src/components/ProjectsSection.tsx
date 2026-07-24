@@ -5,11 +5,12 @@ import { Project, Task } from '../types';
 interface ProjectsSectionProps {
   theme: 'dark' | 'light';
   tasks: Task[];
+  memberProjects?: Project[]; // Projects from backend where user is a team member
   onProjectSelect?: (projectName: string | null) => void;
   selectedProject?: string | null;
 }
 
-export default function ProjectsSection({ theme, tasks, onProjectSelect, selectedProject }: ProjectsSectionProps) {
+export default function ProjectsSection({ theme, tasks, memberProjects = [], onProjectSelect, selectedProject }: ProjectsSectionProps) {
   // Extract unique project names from tasks
   const uniqueProjectNames = Array.from(new Set(tasks.map(t => t.project).filter(Boolean) as string[]));
 
@@ -17,7 +18,7 @@ export default function ProjectsSection({ theme, tasks, onProjectSelect, selecte
   const colors = ['cyan', 'purple', 'emerald', 'amber', 'red', 'blue', 'pink'];
 
   // Generate projects dynamically from tasks
-  const projects: Project[] = uniqueProjectNames.map((name, index) => {
+  const taskProjects: Project[] = uniqueProjectNames.map((name, index) => {
     const projTasks = tasks.filter((t) => t.project === name);
     const completedTasks = projTasks.filter((t) => t.status === 'Completed').length;
     const totalTasks = projTasks.length;
@@ -32,6 +33,19 @@ export default function ProjectsSection({ theme, tasks, onProjectSelect, selecte
       color: colors[index % colors.length],
     };
   });
+
+  // Merge memberProjects with taskProjects - prefer taskProjects data for same-named projects
+  // but include member-only projects that have no tasks
+  const projects: Project[] = (() => {
+    const taskProjectNames = new Set(taskProjects.map(p => p.name.toLowerCase()));
+    const merged = [...taskProjects];
+    for (const mp of memberProjects) {
+      if (!taskProjectNames.has(mp.name.toLowerCase())) {
+        merged.push(mp);
+      }
+    }
+    return merged;
+  })();
 
   const getThemeColors = (color: string) => {
     switch (color) {

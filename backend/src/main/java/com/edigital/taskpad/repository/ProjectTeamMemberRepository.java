@@ -10,6 +10,7 @@ import java.util.Optional;
 @Repository
 public interface ProjectTeamMemberRepository extends JpaRepository<ProjectTeamMember, Long> {
     List<ProjectTeamMember> findByProjectId(String projectId);
+    List<ProjectTeamMember> findByUserId(String userId);
     Optional<ProjectTeamMember> findByProjectIdAndUserId(String projectId, String userId);
     void deleteByProjectIdAndUserId(String projectId, String userId);
 }

@@ -38,7 +38,7 @@ import {
   ThumbsDown,
   User,
 } from 'lucide-react';
-import { Task, TaskStatus } from '../types';
+import { Task, TaskStatus, Project } from '../types';
 import { openDocument, readFileAsDataURL } from '../utils/documentViewer';
 import { checkAndApplyTaskPenalty } from '../utils/penaltyUtils';
 import ProjectsSection from './ProjectsSection';
@@ -203,6 +203,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
+  const [memberProjects, setMemberProjects] = useState<Project[]>([]);
   const [newAttachmentName, setNewAttachmentName] = useState('');
   const [fileToUpload, setFileToUpload] = useState<File | null>(null);
 
@@ -349,6 +350,16 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
         }
       } catch {
         // best-effort; keep empty users
+      }
+      // Fetch projects where user is a team member
+      try {
+        const res = await fetch(`${API_BASE}/projects/user/${user.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setMemberProjects(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        // best-effort
       }
     };
     load();
@@ -1711,6 +1722,7 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
         <ProjectsSection
           theme="dark"
           tasks={tasks}
+          memberProjects={memberProjects}
           selectedProject={selectedProject}
           onProjectSelect={(p) => {
             setSelectedProject(p);
@@ -1741,7 +1753,12 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
 
   const renderDashboardView = () => {
 
-    const projects = Array.from(new Set(tasks.map((t) => t.project).filter(Boolean)));
+    // Merge task-derived projects with member-only projects for dashboard count
+    const taskProjectNames = new Set(tasks.map((t) => t.project).filter(Boolean) as string[]);
+    const dashboardProjects = Array.from(new Set([
+      ...Array.from(taskProjectNames),
+      ...memberProjects.map((mp) => mp.name).filter((name) => !taskProjectNames.has(name))
+    ]));
     const recent = [...tasks]
       .sort((a, b) => (b.dueDate || '').localeCompare(a.dueDate || ''))
       .slice(0, 5);
@@ -1802,13 +1819,13 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
               <div className="p-5 rounded-2xl border border-slate-800/60 bg-slate-800/30">
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-bold text-white">Projects</h2>
-                  <div className="text-xs text-slate-400">{projects.length} active</div>
+                  <div className="text-xs text-slate-400">{dashboardProjects.length} active</div>
                 </div>
                 <div className="mt-4 space-y-2">
-                  {projects.length === 0 ? (
+                  {dashboardProjects.length === 0 ? (
                     <div className="text-xs text-slate-500">No projects assigned.</div>
                   ) : (
-                    projects.slice(0, 6).map((p: string) => {
+                    dashboardProjects.slice(0, 6).map((p: string) => {
                       const prTasks = tasks.filter((t) => t.project === p);
                       const done = prTasks.filter((t) => t.status === 'Completed').length;
                       return (
