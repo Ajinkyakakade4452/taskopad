@@ -102,9 +102,67 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
   const [uploadedDocuments, setUploadedDocuments] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  // Clipboard paste support for screenshots
+  useEffect(() => {
+    const el = dropZoneRef.current;
+    if (!el || !isOpen) return;
+
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+      e.preventDefault();
+
+      const urls: string[] = [];
+      for (const file of imageFiles) {
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch('/api/upload', { method: 'POST', body: formData });
+          if (res.ok) {
+            const data = await res.json();
+            urls.push(data.url);
+          } else {
+            // Fallback: store as data URL
+            const dataUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.readAsDataURL(file);
+            });
+            urls.push(dataUrl);
+          }
+        } catch {
+          // Fallback
+          const dataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(file);
+          });
+          urls.push(dataUrl);
+        }
+        addActivity(`Pasted screenshot: ${file.name || 'screenshot.png'}`);
+      }
+      setUploadedDocuments((prev) => [...prev, ...urls]);
+    };
+
+    el.addEventListener('paste', handlePaste);
+    return () => el.removeEventListener('paste', handlePaste);
+  }, [isOpen]);
 
   // --- Sub Tasks State ---
-  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean; date?: string; startDate?: string; endDate?: string; assignTo?: string; comments?: { id: string; author: string; text: string; date: string }[] }[]>([]);
+  const [subTasks, setSubTasks] = useState<{ id: string; name: string; completed: boolean; date?: string; startDate?: string; endDate?: string; assignTo?: string; assignees?: string[]; comments?: { id: string; author: string; text: string; date: string }[] }[]>([]);
   const [newSubTaskName, setNewSubTaskName] = useState('');
   const [newSubTaskDate, setNewSubTaskDate] = useState(() => {
     const today = new Date();
@@ -119,6 +177,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
     return today.toISOString().split('T')[0];
   });
   const [subtaskExpandedId, setSubtaskExpandedId] = useState<string | null>(null);
+  const [openSubtaskAssignDropdownId, setOpenSubtaskAssignDropdownId] = useState<string | null>(null);
   const [subtaskNewComment, setSubtaskNewComment] = useState('');
   
   // Bulk assign subtask state
@@ -527,8 +586,13 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
   };
 
   const handleAssignSubTask = (id: string, assignTo: string) => {
-    setSubTasks(prev => prev.map(st => st.id === id ? { ...st, assignTo } : st));
+    setSubTasks(prev => prev.map(st => st.id === id ? { ...st, assignTo, assignees: [assignTo] } : st));
     addActivity(`Sub task assigned to: ${assignTo}`);
+  };
+
+  const handleAssignSubTaskMultiple = (id: string, assignees: string[]) => {
+    setSubTasks(prev => prev.map(st => st.id === id ? { ...st, assignees, assignTo: assignees.length > 0 ? assignees[0] : '' } : st));
+    addActivity(`Sub task assignees updated to: ${assignees.join(', ')}`);
   };
 
   const handleRemoveSubTask = (id: string, subName: string) => {
@@ -537,12 +601,15 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
   };
 
   // Bulk assign selected subtasks to selected employees
+  // Assigns all selected employees to every selected subtask
   const handleBulkAssignSubTasks = () => {
     if (selectedAssigneesForBulk.size === 0 || selectedSubtaskIdsForAssign.size === 0) return;
     const assigneesList = Array.from(selectedAssigneesForBulk);
-    setSubTasks(prev => prev.map(st => 
-      selectedSubtaskIdsForAssign.has(st.id) ? { ...st, assignTo: assigneesList[0], assignees: assigneesList } : st
-    ));
+    
+    setSubTasks(prev => prev.map(st => {
+      if (!selectedSubtaskIdsForAssign.has(st.id)) return st;
+      return { ...st, assignTo: assigneesList[0], assignees: [...assigneesList] };
+    }));
     addActivity(`Bulk assigned ${selectedSubtaskIdsForAssign.size} subtask(s) to ${assigneesList.join(', ')}`);
     setSelectedSubtaskIdsForAssign(new Set());
     setSelectedAssigneesForBulk(new Set());
@@ -714,7 +781,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
       dueDate,
       time: displayTime,
       assignTo: selectedAssignees.length > 0 ? selectedAssignees[0] : 'Krishna Lokhande',
-      assignees: selectedAssignees,
+      assignees: selectedAssignees.length > 0 ? selectedAssignees : ['Krishna Lokhande'],
       status: isDraftFlag ? 'Pending' : status,
       service: selectedService,
       follower: selectedFollower,
@@ -752,8 +819,22 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
         id: editingTask.id,
       });
     } else {
-      // Create mode: call onSave without ID
-      onSave(taskData);
+      // Create mode:
+      // If multiple projects are selected, create a SEPARATE task for EACH project
+      if (selectedProjects.length > 1) {
+        selectedProjects.forEach((projectName) => {
+          const singleTask = {
+            ...taskData,
+            project: projectName,
+            projects: [projectName],
+          };
+          onSave(singleTask);
+        });
+        addActivity(`Created ${selectedProjects.length} individual tasks — one per project`);
+      } else {
+        // Single project: create one task as before
+        onSave(taskData);
+      }
     }
 
     // Reset Form fields
@@ -1924,18 +2005,67 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
                           </button>
-                          <select
-                            value={sub.assignTo || ''}
-                            onChange={(e) => handleAssignSubTask(sub.id, e.target.value)}
-                            className={`text-[10px] px-1 py-0.5 rounded border outline-none ${
-                              theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
-                            }`}
-                          >
-                            <option value="">Unassigned</option>
-                            {users.map(u => (
-                              <option key={u.name} value={u.name}>{u.name}</option>
-                            ))}
-                          </select>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setOpenSubtaskAssignDropdownId(openSubtaskAssignDropdownId === sub.id ? null : sub.id)}
+                              className={`text-[9px] font-bold px-2 py-0.5 rounded border outline-none flex items-center gap-1 transition ${
+                                theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <span>👥 {sub.assignees && sub.assignees.length > 0 ? `${sub.assignees.length} selected` : sub.assignTo || 'Unassigned'}</span>
+                              <ChevronDown className="w-2.5 h-2.5" />
+                            </button>
+                            {openSubtaskAssignDropdownId === sub.id && (
+                              <>
+                                <div className="fixed inset-0 z-20" onClick={() => setOpenSubtaskAssignDropdownId(null)} />
+                                <div className={`absolute z-30 right-0 mt-1 rounded-xl shadow-2xl border p-2 flex flex-col gap-1 min-w-[180px] max-h-48 overflow-y-auto ${
+                                  theme === 'dark' ? 'bg-[#141C38] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                                }`}>
+                                  <div className="flex items-center justify-between px-1 pb-1 border-b border-slate-800/10 mb-1">
+                                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Assign Subtask</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const currentAss = sub.assignees || (sub.assignTo ? [sub.assignTo] : []);
+                                        const allSelected = currentAss.length === users.length;
+                                        const nextAssignees = allSelected ? [] : users.map(u => u.name);
+                                        handleAssignSubTaskMultiple(sub.id, nextAssignees);
+                                      }}
+                                      className="text-[9px] text-cyan-400 font-bold hover:underline"
+                                    >
+                                      {(sub.assignees || (sub.assignTo ? [sub.assignTo] : [])).length === users.length ? 'Clear' : 'All'}
+                                    </button>
+                                  </div>
+                                  {users.map(u => {
+                                    const currentAss = sub.assignees || (sub.assignTo ? [sub.assignTo] : []);
+                                    const isChecked = currentAss.includes(u.name);
+                                    return (
+                                      <label
+                                        key={u.name}
+                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] cursor-pointer hover:bg-slate-800/30 ${
+                                          isChecked ? 'text-pink-400 font-bold' : 'text-slate-300'
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => {
+                                            const nextAssignees = isChecked
+                                              ? currentAss.filter(name => name !== u.name)
+                                              : [...currentAss, u.name];
+                                            handleAssignSubTaskMultiple(sub.id, nextAssignees);
+                                          }}
+                                          className="accent-pink-500 w-3 h-3"
+                                        />
+                                        <span>{u.name}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            )}
+                          </div>
                           <button
                             type="button"
                             onClick={() => handleRemoveSubTask(sub.id, sub.name)}
@@ -2072,14 +2202,16 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
             </button>
           </div>
 
-          {/* Drag and Drop Document Upload Area */}
+            {/* Drag and Drop Document Upload Area */}
           <div className="space-y-2">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Document Attachments</span>
             <div
+              ref={dropZoneRef}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
+              tabIndex={0}
               className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition duration-200 ${
                 isDragging
                   ? 'border-cyan-400 bg-cyan-500/5'
@@ -2098,7 +2230,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
               <Paperclip className="w-6 h-6 text-cyan-400 animate-pulse" />
               <div>
                 <p className="text-[11px] font-semibold">Drag & Drop files here, or <span className="text-cyan-400">browse</span></p>
-                <p className="text-[9px] text-slate-500 mt-0.5">Supports images, PDF, spreadsheets</p>
+                <p className="text-[9px] text-slate-500 mt-0.5">Supports images, PDF, spreadsheets — or <span className="text-emerald-400 font-bold">Ctrl+V</span> to paste screenshots</p>
               </div>
             </div>
 

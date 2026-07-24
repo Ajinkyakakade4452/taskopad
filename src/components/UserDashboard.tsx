@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import Notifications, { Notification } from './Notification';
 import {
   LayoutDashboard,
@@ -36,6 +36,7 @@ import {
   Paperclip,
   Trash2,
   ThumbsDown,
+  User,
 } from 'lucide-react';
 import { Task, TaskStatus } from '../types';
 import { openDocument, readFileAsDataURL } from '../utils/documentViewer';
@@ -250,6 +251,69 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
     }
   };
 
+  // Clipboard paste support for user screenshot attachments
+  const userAttachmentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = userAttachmentRef.current;
+    if (!el || !selectedTask) return;
+
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+      e.preventDefault();
+
+      for (const file of imageFiles) {
+        let uploadedUrl = file.name || 'pasted_screenshot.png';
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData });
+          if (res.ok) {
+            const data = await res.json();
+            uploadedUrl = data.url;
+          } else {
+            uploadedUrl = await readFileAsDataURL(file);
+          }
+        } catch {
+          uploadedUrl = await readFileAsDataURL(file);
+        }
+
+        if (!selectedTask) return;
+        const updatedUserDocuments = [...(selectedTask.userDocuments || []), uploadedUrl];
+        const updated = { ...selectedTask, userDocuments: updatedUserDocuments };
+
+        try {
+          const res = await fetch(`${API_BASE}/tasks/${selectedTask.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updated),
+          });
+          if (res.ok) {
+            setTasks((prev) => prev.map((t) => (t.id === selectedTask.id ? updated : t)));
+            setSelectedTask(updated);
+          }
+        } catch {
+          console.error('Failed to update pasted attachment');
+        }
+      }
+    };
+
+    el.addEventListener('paste', handlePaste);
+    return () => el.removeEventListener('paste', handlePaste);
+  }, [selectedTask]);
+
   const handleRemoveUserAttachment = async (idx: number) => {
     if (!selectedTask) return;
     const updatedUserDocuments = (selectedTask.userDocuments || []).filter((_, i) => i !== idx);
@@ -316,36 +380,123 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
 
   const normalizePerson = (s?: string | null) => (s ? s.trim().toLowerCase().replace(/\s+/g, ' ') : '');
 
+  const isSubTaskVisibleToUser = (st: any, task: Task, userName: string) => {
+    const normUser = userName.trim().toLowerCase();
+    
+    // 1. If user is in subtask assignees or is st.assignTo
+    const subAssignees = (st.assignees || []).map((a: string) => a.trim().toLowerCase());
+    const subAssignTo = st.assignTo ? st.assignTo.trim().toLowerCase() : '';
+    
+    if (subAssignees.includes(normUser) || subAssignTo === normUser) {
+      return true;
+    }
+    
+    // 2. If subtask is unassigned, it is visible to task assignees
+    const hasSubAssignees = subAssignees.length > 0 || !!subAssignTo;
+    if (!hasSubAssignees) {
+      const taskAssignees = (task.assignees || []).map((a: string) => a.trim().toLowerCase());
+      const taskAssignTo = task.assignTo ? task.assignTo.trim().toLowerCase() : '';
+      if (taskAssignees.includes(normUser) || taskAssignTo === normUser) {
+        return true;
+      }
+    }
+    
+    return false;
+  };
+
   const fetchTasks = async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/tasks`);
       const all: Task[] = await res.json();
 
-      // Backend seed uses person names in assignTo/assignees.
       // Make matching tolerant to spacing/case.
       const userName = normalizePerson(user.name);
       const userEmail = normalizePerson(user.email);
 
-      const myTasks = all.filter((t) => {
+      const isMainAssignee = (t: Task): boolean => {
         const assignTo = normalizePerson(t.assignTo as any);
-        const assignees = (t.assignees || []).map((a) => normalizePerson(a));
-
-        const matchesName = !!userName && (
-          (assignTo && assignTo.includes(userName)) ||
-          assignees.some((a) => a.includes(userName))
+        
+        // Collect subtask assignees to distinguish them from main task assignees
+        const subtaskAssigneeSet = new Set(
+          (t.subTasks || [])
+            .flatMap((st) => [st.assignTo, ...(st.assignees || [])])
+            .filter(Boolean)
+            .map((a) => normalizePerson(a))
         );
 
-        // Fallback: if some tasks store email.
-        const matchesEmail = !!userEmail && (
-          (assignTo && assignTo.includes(userEmail)) ||
-          assignees.some((a) => a.includes(userEmail))
-        );
+        // Filter t.assignees: an assignee is a main assignee if they match assignTo OR are not ONLY in subtasks
+        const mainAssignees = (t.assignees || [])
+          .map((a) => normalizePerson(a))
+          .filter((a) => {
+            if (a === assignTo) return true;
+            return !subtaskAssigneeSet.has(a);
+          });
 
-        return matchesName || matchesEmail;
-      }).filter(t => t.status !== 'Completed').map(t => checkAndApplyTaskPenalty(t));
+        if (userName) {
+          if (assignTo && assignTo.includes(userName)) return true;
+          if (mainAssignees.some((a) => a.includes(userName))) return true;
+        }
+        if (userEmail) {
+          if (assignTo && assignTo.includes(userEmail)) return true;
+          if (mainAssignees.some((a) => a.includes(userEmail))) return true;
+        }
+        return false;
+      };
 
-      setTasks(myTasks);
+      const isSubtaskAssignee = (st: any): boolean => {
+        const subAssignees = (st.assignees || []).map((a: string) => normalizePerson(a));
+        const subAssignTo = normalizePerson(st.assignTo);
+        if (userName) {
+          if (subAssignTo && subAssignTo.includes(userName)) return true;
+          if (subAssignees.some((a: string) => a.includes(userName))) return true;
+        }
+        if (userEmail) {
+          if (subAssignTo && subAssignTo.includes(userEmail)) return true;
+          if (subAssignees.some((a: string) => a.includes(userEmail))) return true;
+        }
+        return false;
+      };
+
+      // 1. Direct tasks — user is a main-task assignee
+      const directTasks = all
+        .filter((t) => isMainAssignee(t) && t.status !== 'Completed')
+        .map((t) => checkAndApplyTaskPenalty(t));
+
+      // 2. Synthetic subtask entries — user is ONLY assigned to a subtask (not the main task)
+      //    Each assigned subtask becomes its own card in the list.
+      const subtaskEntries: Task[] = [];
+      for (const t of all) {
+        if (isMainAssignee(t)) continue; // already in directTasks
+        if (t.status === 'Completed') continue;
+        for (const st of t.subTasks || []) {
+          if (!isSubtaskAssignee(st)) continue;
+          // Build a synthetic Task that represents this single subtask
+          const syntheticStatus: TaskStatus = st.completed ? 'Completed' : (st.rejectedByAdmin ? 'Rejected' : 'Pending');
+          const entry: Task & {
+            _isSubtaskEntry: boolean;
+            _parentTaskId: string;
+            _parentTaskName: string;
+            _subtaskId: string;
+          } = {
+            ...t,
+            id: t.id, // parent task id — needed for toggleSubTask API calls
+            name: st.name,
+            dueDate: (st as any).endDate || t.dueDate,
+            status: syntheticStatus,
+            subTasks: [st], // only this one subtask
+            _isSubtaskEntry: true,
+            _parentTaskId: t.id,
+            _parentTaskName: t.name,
+            _subtaskId: st.id,
+          } as any;
+          if (entry.status !== 'Completed') {
+            subtaskEntries.push(checkAndApplyTaskPenalty(entry));
+          }
+        }
+      }
+
+      setTasks([...directTasks, ...subtaskEntries]);
     } catch {
       console.error('Failed to fetch tasks');
     } finally {
@@ -527,8 +678,13 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
     (t) => isToday(t.dueDate) || (!isOverdue(t.dueDate) && t.status !== 'Completed')
   );
   const upcomingTasks = tasks.filter((t) => {
-    if (!t.dueDate) return false;
     if (t.status === 'Completed') return false;
+    
+    // Recurring tasks appear in Upcoming even if their current dueDate has passed,
+    // since they will generate future instances.
+    if (t.isRecurring) return true;
+    
+    if (!t.dueDate) return false;
     // Upcoming = due date strictly after today (exclude today tasks)
     const due = parseLocalDateOnly(t.dueDate);
     if (!due) return false;
@@ -591,10 +747,19 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
   const pendingCount = tasks.filter((t) => t.status !== 'Completed').length;
 
   // Pending subtask counts
-  const totalSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.length || 0), 0);
-  const completedSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.filter(st => st.completed)?.length || 0), 0);
+  const totalSubtaskCount = tasks.reduce((sum, t) => {
+    const visibleSubtasks = (t.subTasks || []).filter(st => isSubTaskVisibleToUser(st, t, user.name));
+    return sum + visibleSubtasks.length;
+  }, 0);
+  const completedSubtaskCount = tasks.reduce((sum, t) => {
+    const visibleSubtasks = (t.subTasks || []).filter(st => isSubTaskVisibleToUser(st, t, user.name));
+    return sum + visibleSubtasks.filter(st => st.completed).length;
+  }, 0);
   const pendingSubtaskCount = totalSubtaskCount - completedSubtaskCount;
-  const pendingApprovalSubtaskCount = tasks.reduce((sum, t) => sum + (t.subTasks?.filter(st => st.completed && (st as any).approvedByAdmin !== true)?.length || 0), 0);
+  const pendingApprovalSubtaskCount = tasks.reduce((sum, t) => {
+    const visibleSubtasks = (t.subTasks || []).filter(st => isSubTaskVisibleToUser(st, t, user.name));
+    return sum + visibleSubtasks.filter(st => st.completed && (st as any).approvedByAdmin !== true).length;
+  }, 0);
 
   const renderTasksView = () => (
     <>
@@ -873,89 +1038,130 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                 const sc = statusConfig[task.status] || statusConfig['Pending'];
                 const pc = priorityConfig[task.priority] || priorityConfig['Medium'];
                 const overdue = isOverdue(task.dueDate) && task.status !== 'Completed';
+                const isSubtaskEntry = !!(task as any)._isSubtaskEntry;
+                const parentTaskName = (task as any)._parentTaskName as string | undefined;
+                const subtaskId = (task as any)._subtaskId as string | undefined;
+                // Unique key: for subtask entries include subtaskId to avoid duplicate key issues
+                const rowKey = isSubtaskEntry && subtaskId ? `${task.id}__st__${subtaskId}` : task.id;
 
                 return (
                   <div
-                    key={task.id}
+                    key={rowKey}
                     onClick={() => setSelectedTask(task)}
                     className={`px-6 py-3.5 grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 items-center border-b border-slate-800/40 hover:bg-slate-800/25 transition cursor-pointer group ${
-                      idx % 2 === 0 ? '' : 'bg-slate-900/20'
-                    }`}
+                      isSubtaskEntry ? 'border-l-2 border-l-pink-500/40' : ''
+                    } ${idx % 2 === 0 ? '' : 'bg-slate-900/20'}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          
-                          if (task.status === 'Completed') {
-                            addNotification({
-                              type: 'info',
-                              title: 'Task Completed',
-                              message: 'Completed tasks can only be reopened/modified by the admin.',
-                            });
-                            return;
+                      {isSubtaskEntry ? (
+                        /* Subtask-only entry: toggle the single subtask directly */
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (subtaskId) handleToggleSubTask(task, subtaskId);
+                          }}
+                          className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center transition ${
+                            task.status === 'Completed' || (task.subTasks?.[0]?.completed)
+                              ? 'bg-emerald-500 border-emerald-500'
+                              : (task.subTasks?.[0] as any)?.rejectedByAdmin
+                              ? 'bg-red-500 border-red-500 cursor-not-allowed'
+                              : 'border-slate-600 hover:border-pink-400'
+                          }`}
+                          title={
+                            (task.subTasks?.[0] as any)?.rejectedByAdmin
+                              ? 'Rejected by admin'
+                              : task.subTasks?.[0]?.completed
+                              ? 'Subtask completed'
+                              : 'Mark subtask as done'
                           }
+                        >
+                          {task.subTasks?.[0]?.completed && <CheckCircle2 className="w-2.5 h-2.5 text-white" />}
+                        </button>
+                      ) : (
+                        /* Normal task: existing status-submit workflow */
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
 
-                          if (task.status === 'Under Review') {
-                            // Allow retracting submission to Pending
-                            handleStatusChange(task, 'Pending');
+                            if (task.status === 'Completed') {
+                              addNotification({
+                                type: 'info',
+                                title: 'Task Completed',
+                                message: 'Completed tasks can only be reopened/modified by the admin.',
+                              });
+                              return;
+                            }
+
+                            if (task.status === 'Under Review') {
+                              handleStatusChange(task, 'Pending');
+                              addNotification({
+                                type: 'info',
+                                title: 'Retracted Review',
+                                message: `Task "${task.name}" retracted from review. Status is now Pending.`,
+                              });
+                              return;
+                            }
+
+                            const hasSubTasks = task.subTasks && task.subTasks.length > 0;
+                            const pendingSubTasks = hasSubTasks ? task.subTasks!.filter(st => !st.completed) : [];
+                            if (hasSubTasks && pendingSubTasks.length > 0) {
+                              addNotification({
+                                type: 'warning',
+                                title: 'Cannot Complete Task',
+                                message: `Please complete all subtasks first! (${pendingSubTasks.length} pending)`,
+                              });
+                              return;
+                            }
+
+                            handleStatusChange(task, 'Under Review');
                             addNotification({
-                              type: 'info',
-                              title: 'Retracted Review',
-                              message: `Task "${task.name}" retracted from review. Status is now Pending.`,
+                              type: 'success',
+                              title: 'Submitted for Review',
+                              message: `Task "${task.name}" submitted for admin review.`,
                             });
-                            return;
+                          }}
+                          className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition ${
+                            task.status === 'Completed'
+                              ? 'bg-emerald-500 border-emerald-500 cursor-not-allowed'
+                              : task.status === 'Under Review'
+                              ? 'bg-violet-500 border-violet-500 hover:bg-violet-600'
+                              : 'border-slate-600 hover:border-cyan-400'
+                          }`}
+                          title={
+                            task.status === 'Completed'
+                              ? 'Completed (Admin approved)'
+                              : task.status === 'Under Review'
+                              ? 'Awaiting admin approval (Click to retract)'
+                              : 'Mark as completed (submits for review)'
                           }
+                        >
+                          {task.status === 'Completed' && <CheckCircle2 className="w-3 h-3 text-white" />}
+                          {task.status === 'Under Review' && <Clock3 className="w-3 h-3 text-white" />}
+                          {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />}
+                        </button>
+                      )}
 
-                          // Check subtasks gate
-                          const hasSubTasks = task.subTasks && task.subTasks.length > 0;
-                          const pendingSubTasks = hasSubTasks ? task.subTasks!.filter(st => !st.completed) : [];
-                          if (hasSubTasks && pendingSubTasks.length > 0) {
-                            addNotification({
-                              type: 'warning',
-                              title: 'Cannot Complete Task',
-                              message: `Please complete all subtasks first! (${pendingSubTasks.length} pending)`,
-                            });
-                            return;
-                          }
-
-                          // Change status to Under Review
-                          handleStatusChange(task, 'Under Review');
-                          addNotification({
-                            type: 'success',
-                            title: 'Submitted for Review',
-                            message: `Task "${task.name}" submitted for admin review.`,
-                          });
-                        }}
-                        className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition ${
-                          task.status === 'Completed'
-                            ? 'bg-emerald-500 border-emerald-500 cursor-not-allowed'
-                            : task.status === 'Under Review'
-                            ? 'bg-violet-500 border-violet-500 hover:bg-violet-600'
-                            : 'border-slate-600 hover:border-cyan-400'
-                        }`}
-                        title={
-                          task.status === 'Completed'
-                            ? 'Completed (Admin approved)'
-                            : task.status === 'Under Review'
-                            ? 'Awaiting admin approval (Click to retract)'
-                            : 'Mark as completed (submits for review)'
-                        }
-                      >
-                        {task.status === 'Completed' && <CheckCircle2 className="w-3 h-3 text-white" />}
-                        {task.status === 'Under Review' && <Clock3 className="w-3 h-3 text-white" />}
-                        {updatingId === task.id && <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />}
-                      </button>
-
-                      <span
-                        className={`text-xs font-medium truncate ${
-                          task.status === 'Completed'
-                            ? 'line-through text-slate-500'
-                            : 'text-slate-200 group-hover:text-white'
-                        }`}
-                      >
-                        {task.name}
-                      </span>
+                      <div className="flex flex-col min-w-0">
+                        {isSubtaskEntry && (
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-extrabold bg-pink-500/15 text-pink-400 border border-pink-500/25 flex-shrink-0">
+                              ↳ Subtask
+                            </span>
+                            {parentTaskName && (
+                              <span className="text-[9px] text-slate-500 truncate">{parentTaskName}</span>
+                            )}
+                          </div>
+                        )}
+                        <span
+                          className={`text-xs font-medium truncate ${
+                            task.status === 'Completed' || task.subTasks?.[0]?.completed
+                              ? 'line-through text-slate-500'
+                              : 'text-slate-200 group-hover:text-white'
+                          }`}
+                        >
+                          {task.name}
+                        </span>
+                      </div>
                       {(task.isPenalized || overdue) && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-red-950/60 text-red-400 border border-red-800/50 flex-shrink-0">
                           ⚠️ ₹{task.penaltyAmount ?? 200}
@@ -1030,16 +1236,33 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 flex-shrink-0">
-              <h3 className="text-sm font-bold text-white">Task Details</h3>
+              <h3 className="text-sm font-bold text-white">
+                {(selectedTask as any)._isSubtaskEntry ? 'Subtask Details' : 'Task Details'}
+              </h3>
               <button onClick={() => setSelectedTask(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="flex-1 overflow-auto custom-scrollbar p-6 space-y-6">
+              {/* Subtask-only banner */}
+              {(selectedTask as any)._isSubtaskEntry && (
+                <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl border border-pink-500/30 bg-pink-500/8 text-pink-300">
+                  <span className="text-base flex-shrink-0">↳</span>
+                  <div>
+                    <p className="text-xs font-extrabold text-pink-400">You are assigned to this Subtask only</p>
+                    <p className="text-[11px] text-pink-300/80 mt-0.5">
+                      Parent Task: <span className="font-bold text-pink-200">{(selectedTask as any)._parentTaskName}</span>
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <h2 className="text-lg font-bold text-white">{selectedTask.name}</h2>
-                {selectedTask.description && <p className="text-sm text-slate-400 mt-2 leading-relaxed">{selectedTask.description}</p>}
+                {!(selectedTask as any)._isSubtaskEntry && selectedTask.description && (
+                  <p className="text-sm text-slate-400 mt-2 leading-relaxed">{selectedTask.description}</p>
+                )}
               </div>
 
               <div className="flex items-center gap-3 flex-wrap">
@@ -1092,8 +1315,8 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                 </div>
               )}
 
-              {/* Subtask completion gate notice */}
-              {(() => {
+              {/* Subtask completion gate notice — only for direct main-task assignees */}
+              {!(selectedTask as any)._isSubtaskEntry && (() => {
                 const hasSubTasks = selectedTask.subTasks && selectedTask.subTasks.length > 0;
                 const pendingSubTasks = hasSubTasks
                   ? selectedTask.subTasks!.filter((st) => !(st as any).completed)
@@ -1106,72 +1329,80 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                       <p className="text-xs font-bold">Complete all subtasks first!</p>
                       <p className="text-[11px] text-amber-400/80">Pending subtasks ({pendingSubTasks.length}):</p>
                       <ul className="space-y-0.5">
-                        {pendingSubTasks.map((st) => (
-                          <li key={st.id} className="text-[11px] text-amber-300 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                            {st.name}
-                          </li>
-                        ))}
+                        {pendingSubTasks.map((st) => {
+                          const assigneesStr = (st.assignees && st.assignees.length > 0 ? st.assignees : [st.assignTo]).filter(Boolean).join(', ');
+                          return (
+                            <li key={st.id} className="text-[11px] text-amber-300 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                              <span>{st.name} {assigneesStr ? `(Assigned to: ${assigneesStr})` : ''}</span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   </div>
                 ) : null;
               })()}
 
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Update Status</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(Object.keys(statusConfig) as TaskStatus[]).map((s) => {
-                    const sc = statusConfig[s];
-                    const isActive = selectedTask.status === s;
-                    // "Completed" is admin-only — user cannot directly set it
-                    const isAdminOnly = s === 'Completed';
-                    // "Under Review" is set via the Submit button, not here
-                    const isReviewBlocked = s === 'Under Review';
-                    // Block "Completed" also when subtasks pending
-                    const hasSubTasks = selectedTask.subTasks && selectedTask.subTasks.length > 0;
-                    const pendingSubTasks = hasSubTasks
-                      ? selectedTask.subTasks!.filter((st) => !(st as any).completed)
-                      : [];
-                    const isBlocked = isAdminOnly || isReviewBlocked;
+              {/* Hide main task status controls for subtask-only entries */}
+              {!(selectedTask as any)._isSubtaskEntry && (
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Update Status</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(Object.keys(statusConfig) as TaskStatus[]).map((s) => {
+                      const sc = statusConfig[s];
+                      const isActive = selectedTask.status === s;
+                      // "Completed" is admin-only — user cannot directly set it
+                      const isAdminOnly = s === 'Completed';
+                      // "Under Review" is set via the Submit button, not here
+                      const isReviewBlocked = s === 'Under Review';
+                      // Block "Completed" also when subtasks pending
+                      const hasSubTasks = selectedTask.subTasks && selectedTask.subTasks.length > 0;
+                      const pendingSubTasks = hasSubTasks
+                        ? selectedTask.subTasks!.filter((st) => !(st as any).completed)
+                        : [];
+                      const isBlocked = isAdminOnly || isReviewBlocked;
 
-                    return (
-                      <button
-                        key={s}
-                        onClick={() => {
-                          if (isBlocked) return;
-                          handleStatusChange(selectedTask, s);
-                        }}
-                        disabled={isActive || isBlocked}
-                        title={
-                          isAdminOnly
-                            ? 'Only admin can approve & mark Completed'
-                            : isReviewBlocked
-                            ? 'Use "Submit for Review" button below'
-                            : undefined
-                        }
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border transition ${
-                          isActive
-                            ? `${sc.bg} ${sc.color} border-current cursor-default`
-                            : isBlocked
-                            ? 'bg-slate-800/20 text-slate-600 border-slate-800/30 cursor-not-allowed opacity-40'
-                            : 'bg-slate-800/40 text-slate-400 border-slate-700/30 hover:bg-slate-700 hover:text-white'
-                        }`}
-                      >
-                        <span className={`w-2 h-2 rounded-full ${sc.dot}`} />
-                        {sc.label}
-                        {isActive && <CheckCircle2 className="w-3 h-3 ml-auto" />}
-                      </button>
-                    );
-                  })}
+                      return (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            if (isBlocked) return;
+                            handleStatusChange(selectedTask, s);
+                          }}
+                          disabled={isActive || isBlocked}
+                          title={
+                            isAdminOnly
+                              ? 'Only admin can approve & mark Completed'
+                              : isReviewBlocked
+                              ? 'Use "Submit for Review" button below'
+                              : undefined
+                          }
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border transition ${
+                            isActive
+                              ? `${sc.bg} ${sc.color} border-current cursor-default`
+                              : isBlocked
+                              ? 'bg-slate-800/20 text-slate-600 border-slate-800/30 cursor-not-allowed opacity-40'
+                              : 'bg-slate-800/40 text-slate-400 border-slate-700/30 hover:bg-slate-700 hover:text-white'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${sc.dot}`} />
+                          {sc.label}
+                          {isActive && <CheckCircle2 className="w-3 h-3 ml-auto" />}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {selectedTask.subTasks && selectedTask.subTasks.length > 0 && (
                 <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Sub Tasks</p>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    {(selectedTask as any)._isSubtaskEntry ? 'Your Assigned Subtask' : 'Sub Tasks'}
+                  </p>
                   <div className="space-y-2">
-                    {selectedTask.subTasks.map((st: any) => {
+                    {selectedTask.subTasks.filter((st: any) => isSubTaskVisibleToUser(st, selectedTask, user.name)).map((st: any) => {
                       const isRejected = st.rejectedByAdmin === true;
                       const isApproved = st.approvedByAdmin === true && st.completed;
                       const isExpanded = expandedSubtaskId === st.id;
@@ -1201,17 +1432,29 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                               ) : (
                                 <Square className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 flex-shrink-0 transition" />
                               )}
-                              <span className={`text-xs transition flex-1 ${
-                                isRejected
-                                  ? 'line-through text-red-400'
-                                  : isApproved
-                                  ? 'line-through text-slate-500'
-                                  : st.completed
-                                  ? 'line-through text-slate-500'
-                                  : 'text-slate-200 group-hover:text-white'
-                              }`}>
-                                {st.name}
-                              </span>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <span className={`text-xs transition flex-1 ${
+                                  isRejected
+                                    ? 'line-through text-red-400'
+                                    : isApproved
+                                    ? 'line-through text-slate-500'
+                                    : st.completed
+                                    ? 'line-through text-slate-500'
+                                    : 'text-slate-200 group-hover:text-white'
+                                }`}>
+                                  {st.name}
+                                </span>
+                                {((st.assignees && st.assignees.length > 0) || st.assignTo) && (
+                                  <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                    <User className="w-2.5 h-2.5 text-pink-400 flex-shrink-0" />
+                                    {(st.assignees && st.assignees.length > 0 ? st.assignees : [st.assignTo]).filter(Boolean).map((name: any, idx: number) => (
+                                      <span key={idx} className="text-[8px] font-bold text-pink-400 bg-pink-500/10 px-1.5 py-0.5 rounded border border-pink-500/20 whitespace-nowrap">
+                                        {name}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                               <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0 ${
                                 isRejected
                                   ? 'bg-red-500/10 text-red-400'
@@ -1354,32 +1597,35 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                 </div>
 
                 {/* Upload Form */}
-                <div className="flex gap-2">
-                  <input
-                    type="file"
-                    id="user-file-upload-dash"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setFileToUpload(e.target.files[0]);
-                        setNewAttachmentName(e.target.files[0].name);
-                      }
-                    }}
-                  />
-                  <label
-                    htmlFor="user-file-upload-dash"
-                    className="flex-1 flex items-center px-3 py-1.5 rounded-lg text-xs font-medium border bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer transition truncate"
-                  >
-                    {newAttachmentName ? newAttachmentName : 'Select file to upload...'}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleAddAttachment}
-                    disabled={!newAttachmentName.trim()}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold hover:bg-emerald-500/20 cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Upload
-                  </button>
+                <div ref={userAttachmentRef} tabIndex={0} className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="file"
+                      id="user-file-upload-dash"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setFileToUpload(e.target.files[0]);
+                          setNewAttachmentName(e.target.files[0].name);
+                        }
+                      }}
+                    />
+                    <label
+                      htmlFor="user-file-upload-dash"
+                      className="flex-1 flex items-center px-3 py-1.5 rounded-lg text-xs font-medium border bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer transition truncate"
+                    >
+                      {newAttachmentName ? newAttachmentName : 'Select file to upload...'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAddAttachment}
+                      disabled={!newAttachmentName.trim()}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold hover:bg-emerald-500/20 cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Upload
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-slate-500 text-center">Or <span className="text-emerald-400 font-bold">Ctrl+V</span> to paste screenshots</p>
                 </div>
               </div>
 
@@ -1395,8 +1641,8 @@ export default function UserDashboard({ user, onLogout }: UserDashboardProps) {
                 </button>
                 {/* Delete button intentionally omitted — users cannot delete tasks */}
               </div>
-              {/* Mark as Completed — submits for admin review (Under Review) */}
-              {(() => {
+              {/* Submit for Review — only for direct main-task assignees, not subtask-only entries */}
+              {!(selectedTask as any)._isSubtaskEntry && (() => {
                 const hasSubTasks = selectedTask.subTasks && selectedTask.subTasks.length > 0;
                 const pendingSubTasks = hasSubTasks
                   ? selectedTask.subTasks!.filter((st) => !(st as any).completed)

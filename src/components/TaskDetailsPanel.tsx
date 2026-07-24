@@ -88,6 +88,9 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   const [isBulkAssignDropdownOpen, setIsBulkAssignDropdownOpen] = useState(false);
   const bulkAssignRef = useRef<HTMLDivElement>(null);
 
+  // Clipboard paste support for screenshots
+  const attachmentDropZoneRef = useRef<HTMLDivElement>(null);
+
   // Dropdown list options
   const [projectsList, setProjectsList] = useState<string[]>([]);
   
@@ -192,6 +195,86 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
     }
   }, [task, isOpen]);
 
+  // Clipboard paste effect (must be before early return to satisfy React hooks rules)
+  useEffect(() => {
+    const el = attachmentDropZoneRef.current;
+    if (!el || !isOpen || !task) return;
+
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+      e.preventDefault();
+
+      for (const file of imageFiles) {
+        let uploadedUrl = file.name || 'pasted_screenshot.png';
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch('/api/upload', { method: 'POST', body: formData });
+          if (res.ok) {
+            const data = await res.json();
+            uploadedUrl = data.url;
+          } else {
+            uploadedUrl = await readFileAsDataURL(file);
+          }
+        } catch {
+          uploadedUrl = await readFileAsDataURL(file);
+        }
+
+        let updatedTask: Task;
+        if (loggedInUser?.role === 'admin') {
+          const updated = [...attachments, uploadedUrl];
+          setAttachments(updated);
+          updatedTask = {
+            ...task,
+            subTasks,
+            checklist,
+            comments,
+            timeLogs,
+            documents: updated,
+            userDocuments: userAttachments,
+          };
+        } else {
+          const updated = [...userAttachments, uploadedUrl];
+          setUserAttachments(updated);
+          updatedTask = {
+            ...task,
+            subTasks,
+            checklist,
+            comments,
+            timeLogs,
+            documents: attachments,
+            userDocuments: updated,
+          };
+        }
+
+        onSave(updatedTask);
+
+        const newActLog = {
+          id: `act-${Date.now()}`,
+          user: loggedInUser?.name || 'User',
+          action: `Pasted screenshot: ${file.name || 'screenshot.png'}`,
+          date: new Date().toLocaleString()
+        };
+        setActivityLogs(prev => [newActLog, ...prev]);
+      }
+    };
+
+    el.addEventListener('paste', handlePaste);
+    return () => el.removeEventListener('paste', handlePaste);
+  }, [isOpen, task, loggedInUser?.role, attachments, userAttachments, subTasks, checklist, comments, timeLogs]);
+
   if (!isOpen || !task) return null;
 
   // Save Edit Mode changes
@@ -224,7 +307,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
       project: selectedProject,
       projects: [selectedProject],
       assignTo,
-      assignees: [assignTo],
+      assignees: task?.assignees && task.assignees.length > 0 ? task.assignees : [assignTo],
       subTasks,
       checklist,
       comments,
@@ -589,12 +672,16 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
   };
 
   // Bulk assign selected subtasks to selected employees
+  // All selected employees are assigned to every selected subtask
   const handleBulkAssignSubTasks = () => {
     if (selectedAssigneesForBulk.size === 0 || selectedSubtaskIdsForAssign.size === 0) return;
     const assigneesList = Array.from(selectedAssigneesForBulk);
-    const updated = subTasks.map(st => 
-      selectedSubtaskIdsForAssign.has(st.id) ? { ...st, assignTo: assigneesList[0], assignees: assigneesList } : st
-    );
+    
+    const updated = subTasks.map(st => {
+      if (!selectedSubtaskIdsForAssign.has(st.id)) return st;
+      // Assign ALL selected employees to this subtask
+      return { ...st, assignTo: assigneesList[0], assignees: [...assigneesList] };
+    });
     setSubTasks(updated);
     const updatedTask: Task = {
       ...task,
@@ -1546,11 +1633,16 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                           )}
                         </div>
                       )}
-                      {/* Subtask assignee badge */}
-                      {st.assignTo && (
-                        <span className="text-[8px] font-bold text-pink-400 bg-pink-500/10 px-1.5 py-0.5 rounded border border-pink-500/20 mt-0.5 self-start whitespace-nowrap">
-                          👤 {st.assignTo}
-                        </span>
+                      {/* Assigned employee badges */}
+                      {((st.assignees && st.assignees.length > 0) || st.assignTo) && (
+                        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                          <User className="w-2.5 h-2.5 text-pink-400 flex-shrink-0" />
+                          {(st.assignees && st.assignees.length > 0 ? st.assignees : [st.assignTo]).filter(Boolean).map((name, idx) => (
+                            <span key={idx} className="text-[8px] font-bold text-pink-400 bg-pink-500/10 px-1.5 py-0.5 rounded border border-pink-500/20 whitespace-nowrap">
+                              {name}
+                            </span>
+                          ))}
+                        </div>
                       )}
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -1825,8 +1917,10 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
 
             {/* File Drag Zone & Mock Upload Form */}
             <div
+              ref={attachmentDropZoneRef}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
+              tabIndex={0}
               className={`p-4 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1.5 text-center transition ${
                 theme === 'dark' 
                   ? 'border-slate-800 bg-[#141C38]/20 text-slate-400 hover:border-cyan-500/30' 
@@ -1835,6 +1929,7 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
             >
               <Paperclip className="w-6 h-6 text-slate-500 animate-pulse" />
               <p className="text-[10px] font-bold">Drag and drop file here or use form below</p>
+              <p className="text-[9px] text-slate-500">Or <span className="text-emerald-400 font-bold">Ctrl+V</span> to paste screenshots</p>
             </div>
 
             <div className="flex gap-2">
