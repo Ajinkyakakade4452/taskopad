@@ -1960,14 +1960,16 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                     <div key={sub.id} className="rounded-lg border border-slate-800/10 overflow-hidden bg-slate-900/30">
                       <div className="flex items-center justify-between px-2 py-1.5">
                         <div className="flex items-center gap-2 flex-1">
-                          {/* Bulk assign selection checkbox */}
-                          <input
-                            type="checkbox"
-                            checked={selectedSubtaskIdsForAssign.has(sub.id)}
-                            onChange={() => toggleSubtaskForBulkAssign(sub.id)}
-                            className="accent-pink-500 flex-shrink-0"
-                            title="Select for bulk assign"
-                          />
+                          {/* Bulk assign selection checkbox — hidden if subtask already approved */}
+                          {!sub.approvedByAdmin && (
+                            <input
+                              type="checkbox"
+                              checked={selectedSubtaskIdsForAssign.has(sub.id)}
+                              onChange={() => toggleSubtaskForBulkAssign(sub.id)}
+                              className="accent-pink-500 flex-shrink-0"
+                              title="Select for bulk assign"
+                            />
+                          )}
                           <input
                             type="checkbox"
                             checked={sub.completed}
@@ -2005,6 +2007,8 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
                           </button>
+                          {/* Individual assign dropdown — hidden if subtask already approved */}
+                          {!sub.approvedByAdmin && (
                           <div className="relative">
                             <button
                               type="button"
@@ -2066,6 +2070,9 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                               </>
                             )}
                           </div>
+                          )}
+                          {/* Delete button — hidden if subtask already approved */}
+                          {!sub.approvedByAdmin && (
                           <button
                             type="button"
                             onClick={() => handleRemoveSubTask(sub.id, sub.name)}
@@ -2073,6 +2080,7 @@ export default function TaskModal({ theme, isOpen, onClose, onSave, onUpdate, ed
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
+                          )}
                         </div>
                       </div>
                       

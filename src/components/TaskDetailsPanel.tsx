@@ -1170,7 +1170,12 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                 <select
                   value={assignTo}
                   onChange={(e) => setAssignTo(e.target.value)}
+                  disabled={status === 'Approved' || status === 'Completed'}
                   className={`w-full px-3 py-2 rounded-xl text-xs font-medium focus:ring-1 focus:ring-cyan-500 outline-none border ${
+                    status === 'Approved' || status === 'Completed'
+                      ? 'opacity-50 cursor-not-allowed'
+                      : ''
+                  } ${
                     theme === 'dark' 
                       ? 'bg-[#141C38] border-slate-800 text-slate-200' 
                       : 'bg-slate-50 border-slate-200 text-slate-800'
@@ -1584,8 +1589,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                   <div className="flex-1 flex flex-col">
                   {/* Subtask main row */}
                   <div className="flex items-center gap-3 p-2.5">
-                    {/* Bulk assign selection checkbox */}
-                    {loggedInUser?.role === 'admin' && (
+                    {/* Bulk assign selection checkbox — hidden if subtask already approved */}
+                    {loggedInUser?.role === 'admin' && !st.approvedByAdmin && (
                       <input
                         type="checkbox"
                         checked={selectedSubtaskIdsForAssign.has(st.id)}
@@ -1594,8 +1599,8 @@ export default function TaskDetailsPanel({ theme, isOpen, task, onClose, onSave,
                         title="Select for bulk assign"
                       />
                     )}
-                    {/* Selection checkbox for admin */}
-                    {loggedInUser?.role === 'admin' && (
+                    {/* Selection checkbox for admin approve/reject — hidden if subtask already approved */}
+                    {loggedInUser?.role === 'admin' && !st.approvedByAdmin && (
                       <input
                         type="checkbox"
                         checked={selectedSubtaskIds.has(st.id)}
